@@ -2,15 +2,49 @@ require "CustomSync"
 
 local tickCounter = 0
 
+-- Cache for dynamic updates
+local lastUpdateInterval = CustomSync.UPDATE_INTERVAL
+local lastSyncDistance = CustomSync.SYNC_DISTANCE
+local lastEnableVehicleRespawn = CustomSync.ENABLE_VEHICLE_RESPAWN
+
 local function onInitGlobalModData()
     CustomSync.UPDATE_INTERVAL = SandboxVars.CustomSync.UpdateInterval or CustomSync.UPDATE_INTERVAL
     CustomSync.SYNC_DISTANCE = SandboxVars.CustomSync.SyncDistance or CustomSync.SYNC_DISTANCE
     CustomSync.ENABLE_VEHICLE_RESPAWN = SandboxVars.CustomSync.EnableVehicleRespawn
     if CustomSync.ENABLE_VEHICLE_RESPAWN == nil then CustomSync.ENABLE_VEHICLE_RESPAWN = true end
+
+    -- Update cache
+    lastUpdateInterval = CustomSync.UPDATE_INTERVAL
+    lastSyncDistance = CustomSync.SYNC_DISTANCE
+    lastEnableVehicleRespawn = CustomSync.ENABLE_VEHICLE_RESPAWN
 end
 
 local function onTick()
     tickCounter = tickCounter + 1
+
+    -- Check for dynamic updates to sandbox vars
+    if SandboxVars.CustomSync.UpdateInterval and SandboxVars.CustomSync.UpdateInterval ~= lastUpdateInterval then
+        CustomSync.UPDATE_INTERVAL = SandboxVars.CustomSync.UpdateInterval
+        lastUpdateInterval = CustomSync.UPDATE_INTERVAL
+        if CustomSync.DEBUG then
+            print("[CustomSync] Updated UPDATE_INTERVAL to " .. CustomSync.UPDATE_INTERVAL)
+        end
+    end
+    if SandboxVars.CustomSync.SyncDistance and SandboxVars.CustomSync.SyncDistance ~= lastSyncDistance then
+        CustomSync.SYNC_DISTANCE = SandboxVars.CustomSync.SyncDistance
+        lastSyncDistance = CustomSync.SYNC_DISTANCE
+        if CustomSync.DEBUG then
+            print("[CustomSync] Updated SYNC_DISTANCE to " .. CustomSync.SYNC_DISTANCE)
+        end
+    end
+    if SandboxVars.CustomSync.EnableVehicleRespawn ~= nil and SandboxVars.CustomSync.EnableVehicleRespawn ~= lastEnableVehicleRespawn then
+        CustomSync.ENABLE_VEHICLE_RESPAWN = SandboxVars.CustomSync.EnableVehicleRespawn
+        lastEnableVehicleRespawn = CustomSync.ENABLE_VEHICLE_RESPAWN
+        if CustomSync.DEBUG then
+            print("[CustomSync] Updated ENABLE_VEHICLE_RESPAWN to " .. tostring(CustomSync.ENABLE_VEHICLE_RESPAWN))
+        end
+    end
+
     if tickCounter % CustomSync.UPDATE_INTERVAL ~= 0 then return end
 
     -- Sync players
