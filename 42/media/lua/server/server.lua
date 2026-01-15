@@ -75,21 +75,34 @@ function CustomSync.syncZombies()
     local cell = getCell()
     if not cell then return end
 
-    -- Get zombies in loaded areas, but for simplicity, get all in cell
-    -- In practice, limit to areas near players
+    local players = getOnlinePlayers()
     local zombieList = cell:getZombieList()
     if zombieList then
         for i = 0, zombieList:size() - 1 do
             local zombie = zombieList:get(i)
             if zombie then
-                table.insert(zombies, {
-                    id = zombie:getOnlineID(),
-                    x = zombie:getX(),
-                    y = zombie:getY(),
-                    z = zombie:getZ(),
-                    health = zombie:getHealth(),
-                    state = zombie:getCurrentState()
-                })
+                local zx, zy = zombie:getX(), zombie:getY()
+                local nearPlayer = false
+                for j = 0, players:size() - 1 do
+                    local player = players:get(j)
+                    if player then
+                        local px, py = player:getX(), player:getY()
+                        if CustomSync.isWithinSyncDistance(px, py, zx, zy) then
+                            nearPlayer = true
+                            break
+                        end
+                    end
+                end
+                if nearPlayer then
+                    table.insert(zombies, {
+                        id = zombie:getOnlineID(),
+                        x = zombie:getX(),
+                        y = zombie:getY(),
+                        z = zombie:getZ(),
+                        health = zombie:getHealth(),
+                        state = zombie:getCurrentState()
+                    })
+                end
             end
         end
     end
@@ -107,19 +120,34 @@ function CustomSync.syncVehicles()
     local cell = getCell()
     if not cell then return end
 
+    local players = getOnlinePlayers()
     local vehicleList = cell:getVehicles()
     if vehicleList then
         for i = 0, vehicleList:size() - 1 do
             local vehicle = vehicleList:get(i)
             if vehicle then
-                table.insert(vehicles, {
-                    id = vehicle:getID(),
-                    x = vehicle:getX(),
-                    y = vehicle:getY(),
-                    z = vehicle:getZ(),
-                    speed = vehicle:getCurrentSpeedKmHour(),
-                    health = vehicle:getEngineQuality()
-                })
+                local vx, vy = vehicle:getX(), vehicle:getY()
+                local nearPlayer = false
+                for j = 0, players:size() - 1 do
+                    local player = players:get(j)
+                    if player then
+                        local px, py = player:getX(), player:getY()
+                        if CustomSync.isWithinSyncDistance(px, py, vx, vy) then
+                            nearPlayer = true
+                            break
+                        end
+                    end
+                end
+                if nearPlayer then
+                    table.insert(vehicles, {
+                        id = vehicle:getID(),
+                        x = vehicle:getX(),
+                        y = vehicle:getY(),
+                        z = vehicle:getZ(),
+                        speed = vehicle:getCurrentSpeedKmHour(),
+                        health = vehicle:getEngineQuality()
+                    })
+                end
             end
         end
     end
