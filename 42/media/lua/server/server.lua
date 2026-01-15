@@ -72,10 +72,13 @@ function CustomSync.syncPlayers()
                     local seat = vehicle:getSeat(player)
                     ModData[CustomSync.MOD_ID .. "_vehicle_" .. player:getUsername()] = {
                         vehicleId = vehicle:getID(),
-                        seat = seat
+                        seat = seat,
+                        x = vehicle:getX(),
+                        y = vehicle:getY(),
+                        z = vehicle:getZ()
                     }
                     if CustomSync.DEBUG then
-                        print("[CustomSync] Saved vehicle data for " .. player:getUsername() .. ": ID " .. vehicle:getID() .. ", seat " .. seat)
+                        print("[CustomSync] Saved vehicle data for " .. player:getUsername() .. ": ID " .. vehicle:getID() .. ", seat " .. seat .. ", pos (" .. vehicle:getX() .. ", " .. vehicle:getY() .. ", " .. vehicle:getZ() .. ")")
                     end
                 else
                     ModData[CustomSync.MOD_ID .. "_vehicle_" .. player:getUsername()] = nil
@@ -191,6 +194,20 @@ function CustomSync.syncVehicles()
     end
 
     sendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_VEHICLES, vehicles)
+
+    -- Update saved vehicle positions for respawn
+    for key, data in pairs(ModData) do
+        if string.find(key, "^" .. CustomSync.MOD_ID .. "_vehicle_") and data.vehicleId then
+            for _, vdata in ipairs(vehicles) do
+                if vdata.id == data.vehicleId then
+                    data.x = vdata.x
+                    data.y = vdata.y
+                    data.z = vdata.z
+                    break
+                end
+            end
+        end
+    end
 end
 
 Events.OnInitGlobalModData.Add(onInitGlobalModData)
@@ -201,9 +218,13 @@ local function onCreatePlayer(playerIndex, player)
 
     local username = player:getUsername()
     local data = ModData[CustomSync.MOD_ID .. "_vehicle_" .. username]
-    if data and data.vehicleId then
-        -- Find the vehicle
-        local cell = getCell()
+    if data and data.vehicleId and data.x and data.y and data.z then
+        -- Teleport player to saved vehicle position
+        player:setX(data.x)
+        player:setY(data.y)
+        player:setZ(data.z)
+        -- Get the cell at that position
+        local cell = getWorld():getCell(data.x, data.y, data.z)
         if cell then
             local vehicles = cell:getVehicles()
             if vehicles then
@@ -224,3 +245,42 @@ local function onCreatePlayer(playerIndex, player)
 end
 
 Events.OnCreatePlayer.Add(onCreatePlayer)
+
+local function onClientCommand(module, command, player, args)
+    if module ~= CustomSync.MOD_ID then return end
+
+    if command == "testRespawn" then
+        local username = player:getUsername()
+        local data = ModData[CustomSync.MOD_ID .. "_vehicle_" .. username]
+        if data and data.vehicleId and data.x and data.y and data.z then
+            -- Teleport player to saved vehicle position
+            player:setX(data.x)
+            player:setY(data.y)
+            player:setZ(data.z)
+            -- Get the cell at that position
+            local cell = getWorld():getCell(data.x, data.y, data.z)
+            if cell then
+                local vehicles = cell:getVehicles()
+                if vehicles then
+                    for i = 0, vehicles:size() - 1 do
+                        local veh = vehicles:get(i)
+                        if veh and veh:getID() == data.vehicleId then
+                            veh:enter(player, data.seat or 0)
+                            ModData[CustomSync.MOD_ID .. "_vehicle_" .. username] = nil
+                            if CustomSync.DEBUG then
+                                print("[CustomSync] Test respawn successful for " .. username .. " in vehicle ID " .. data.vehicleId)
+                            end
+                            break
+                        end
+                    end
+                end
+            end
+        else
+            if CustomSync.DEBUG then
+                print("[CustomSync] No saved vehicle data for " .. username)
+            end
+        end
+    end
+end
+
+Events.OnClientCommand.Add(onClientCommand)
