@@ -5,18 +5,10 @@ local tickCounter = 0
 -- Cache for dynamic updates
 local lastUpdateInterval = CustomSync.UPDATE_INTERVAL
 local lastSyncDistance = CustomSync.SYNC_DISTANCE
-local lastEnableVehicleRespawn = CustomSync.ENABLE_VEHICLE_RESPAWN
 
 local function onInitGlobalModData()
     CustomSync.UPDATE_INTERVAL = SandboxVars.CustomSync.UpdateInterval or CustomSync.UPDATE_INTERVAL
     CustomSync.SYNC_DISTANCE = SandboxVars.CustomSync.SyncDistance or CustomSync.SYNC_DISTANCE
-    CustomSync.ENABLE_VEHICLE_RESPAWN = SandboxVars.CustomSync.EnableVehicleRespawn
-    if CustomSync.ENABLE_VEHICLE_RESPAWN == nil then CustomSync.ENABLE_VEHICLE_RESPAWN = true end
-
-    -- Update cache
-    lastUpdateInterval = CustomSync.UPDATE_INTERVAL
-    lastSyncDistance = CustomSync.SYNC_DISTANCE
-    lastEnableVehicleRespawn = CustomSync.ENABLE_VEHICLE_RESPAWN
 end
 
 local function onTick()
@@ -35,13 +27,6 @@ local function onTick()
         lastSyncDistance = CustomSync.SYNC_DISTANCE
         if CustomSync.DEBUG then
             print("[CustomSync] Updated SYNC_DISTANCE to " .. CustomSync.SYNC_DISTANCE)
-        end
-    end
-    if SandboxVars.CustomSync.EnableVehicleRespawn ~= nil and SandboxVars.CustomSync.EnableVehicleRespawn ~= lastEnableVehicleRespawn then
-        CustomSync.ENABLE_VEHICLE_RESPAWN = SandboxVars.CustomSync.EnableVehicleRespawn
-        lastEnableVehicleRespawn = CustomSync.ENABLE_VEHICLE_RESPAWN
-        if CustomSync.DEBUG then
-            print("[CustomSync] Updated ENABLE_VEHICLE_RESPAWN to " .. tostring(CustomSync.ENABLE_VEHICLE_RESPAWN))
         end
     end
 
@@ -65,29 +50,6 @@ function CustomSync.syncPlayers()
     for i = 0, players:size() - 1 do
         local player = players:get(i)
         if player then
-            -- Save vehicle state for respawn
-            if CustomSync.ENABLE_VEHICLE_RESPAWN then
-                local vehicle = player:getVehicle()
-                if vehicle then
-                    local seat = vehicle:getSeat(player)
-                    ModData[CustomSync.MOD_ID .. "_vehicle_" .. player:getUsername()] = {
-                        vehicleId = vehicle:getID(),
-                        seat = seat,
-                        x = vehicle:getX(),
-                        y = vehicle:getY(),
-                        z = vehicle:getZ()
-                    }
-                    if CustomSync.DEBUG then
-                        print("[CustomSync] Saved vehicle data for " .. player:getUsername() .. ": ID " .. vehicle:getID() .. ", seat " .. seat .. ", pos (" .. vehicle:getX() .. ", " .. vehicle:getY() .. ", " .. vehicle:getZ() .. ")")
-                    end
-                else
-                    ModData[CustomSync.MOD_ID .. "_vehicle_" .. player:getUsername()] = nil
-                    if CustomSync.DEBUG then
-                        print("[CustomSync] Cleared vehicle data for " .. player:getUsername())
-                    end
-                end
-            end
-
             table.insert(playerData, {
                 id = player:getOnlineID(),
                 x = player:getX(),
@@ -194,93 +156,7 @@ function CustomSync.syncVehicles()
     end
 
     sendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_VEHICLES, vehicles)
-
-    -- Update saved vehicle positions for respawn
-    for key, data in pairs(ModData) do
-        if string.find(key, "^" .. CustomSync.MOD_ID .. "_vehicle_") and data.vehicleId then
-            for _, vdata in ipairs(vehicles) do
-                if vdata.id == data.vehicleId then
-                    data.x = vdata.x
-                    data.y = vdata.y
-                    data.z = vdata.z
-                    break
-                end
-            end
-        end
-    end
 end
 
 Events.OnInitGlobalModData.Add(onInitGlobalModData)
 Events.OnTick.Add(onTick)
-
-local function onCreatePlayer(playerIndex, player)
-    if not CustomSync.ENABLE_VEHICLE_RESPAWN then return end
-
-    local username = player:getUsername()
-    local data = ModData[CustomSync.MOD_ID .. "_vehicle_" .. username]
-    if data and data.vehicleId and data.x and data.y and data.z then
-        -- Teleport player to saved vehicle position
-        player:setX(data.x)
-        player:setY(data.y)
-        player:setZ(data.z)
-        -- Get the cell at that position
-        local cell = getWorld():getCell(data.x, data.y, data.z)
-        if cell then
-            local vehicles = cell:getVehicles()
-            if vehicles then
-                for i = 0, vehicles:size() - 1 do
-                    local veh = vehicles:get(i)
-                    if veh and veh:getID() == data.vehicleId then
-                        veh:enter(player, data.seat or 0)
-                        ModData[CustomSync.MOD_ID .. "_vehicle_" .. username] = nil
-                        if CustomSync.DEBUG then
-                            print("[CustomSync] Respawned " .. username .. " in vehicle ID " .. data.vehicleId .. ", seat " .. (data.seat or 0))
-                        end
-                        break
-                    end
-                end
-            end
-        end
-    end
-end
-
-Events.OnCreatePlayer.Add(onCreatePlayer)
-
-local function onClientCommand(module, command, player, args)
-    if module ~= CustomSync.MOD_ID then return end
-
-    if command == "testRespawn" then
-        local username = player:getUsername()
-        local data = ModData[CustomSync.MOD_ID .. "_vehicle_" .. username]
-        if data and data.vehicleId and data.x and data.y and data.z then
-            -- Teleport player to saved vehicle position
-            player:setX(data.x)
-            player:setY(data.y)
-            player:setZ(data.z)
-            -- Get the cell at that position
-            local cell = getWorld():getCell(data.x, data.y, data.z)
-            if cell then
-                local vehicles = cell:getVehicles()
-                if vehicles then
-                    for i = 0, vehicles:size() - 1 do
-                        local veh = vehicles:get(i)
-                        if veh and veh:getID() == data.vehicleId then
-                            veh:enter(player, data.seat or 0)
-                            ModData[CustomSync.MOD_ID .. "_vehicle_" .. username] = nil
-                            if CustomSync.DEBUG then
-                                print("[CustomSync] Test respawn successful for " .. username .. " in vehicle ID " .. data.vehicleId)
-                            end
-                            break
-                        end
-                    end
-                end
-            end
-        else
-            if CustomSync.DEBUG then
-                print("[CustomSync] No saved vehicle data for " .. username)
-            end
-        end
-    end
-end
-
-Events.OnClientCommand.Add(onClientCommand)
