@@ -115,4 +115,3 @@ function CustomSync.applyVehicleSync(vehicleData)
 end
 
 Events.OnServerCommand.Add(onServerCommand)
-
