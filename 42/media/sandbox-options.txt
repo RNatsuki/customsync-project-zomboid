@@ -1,0 +1,29 @@
+VERSION = 1,
+
+option CustomSync.UpdateInterval
+{
+    type = integer,
+    default = 600,
+    min = 60,
+    max = 2400,
+    page = CustomSync,
+    translation = CustomSync_UpdateInterval,
+}
+
+option CustomSync.SyncDistance
+{
+    type = integer,
+    default = 50,
+    min = 10,
+    max = 200,
+    page = CustomSync,
+    translation = CustomSync_SyncDistance,
+}
+
+option CustomSync.EnableVehicleRespawn
+{
+    type = boolean,
+    default = true,
+    page = CustomSync,
+    translation = CustomSync_EnableVehicleRespawn,
+}

@@ -1,0 +1,6 @@
+id=CustomSync
+name=Custom Sync Optimizer
+description=Real-time synchronization for players, zombies, and vehicles in multiplayer. Optimized for Build 42 server-sided multiplayer.
+poster=poster.png
+tags=Build 42
+versionMin=42.0
