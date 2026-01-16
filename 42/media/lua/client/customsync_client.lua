@@ -74,11 +74,11 @@ function CustomSync.applyZombieSync(zombieData)
         if zombie then
             local px, py = localPlayer:getX(), localPlayer:getY()
             if CustomSync.isWithinSyncDistance(px, py, data.x, data.y) then
-                zombie:setX(data.x)
-                zombie:setY(data.y)
-                zombie:setZ(data.z)
-                zombie:setHealth(data.health)
-                -- State might need more handling
+                if CustomSync.DEBUG then
+                    print("[CustomSync] Applying sync to zombie " .. data.id .. " at (" .. data.x .. "," .. data.y .. ") health:" .. data.health .. " direction:" .. data.direction)
+                end
+                -- Store target for interpolation
+                CustomSync.zombieTargets[data.id] = data
             end
         end
     end
@@ -187,5 +187,50 @@ local function onContainerUpdate(container)
     end
 end
 
+function CustomSync.interpolateZombies()
+    local cell = getCell()
+    if not cell then return end
+    local zombieList = cell:getZombieList()
+    if not zombieList then return end
+
+    for id, data in pairs(CustomSync.zombieTargets) do
+        for i = 0, zombieList:size() - 1 do
+            local zombie = zombieList:get(i)
+            if zombie and zombie:getOnlineID() == id then
+                local cx, cy, cz = zombie:getX(), zombie:getY(), zombie:getZ()
+                local dx = data.x - cx
+                local dy = data.y - cy
+                local dz = data.z - cz
+                local dist = math.sqrt(dx*dx + dy*dy + dz*dz)
+                if dist > 0.1 then
+                    local speed = 0.2 -- adjust for smoothness
+                    local moveDist = speed
+                    if moveDist > dist then moveDist = dist end
+                    local nx = cx + (dx / dist) * moveDist
+                    local ny = cy + (dy / dist) * moveDist
+                    local nz = cz + (dz / dist) * moveDist
+                    zombie:setX(nx)
+                    zombie:setY(ny)
+                    zombie:setZ(nz)
+                else
+                    zombie:setX(data.x)
+                    zombie:setY(data.y)
+                    zombie:setZ(data.z)
+                    zombie:setHealth(data.health)
+                    -- zombie:setCrawler(data.crawling or false)  -- Commented out as getter not available in Lua
+                    zombie:setDirectionAngle(data.direction)
+                    if CustomSync.DEBUG then
+                        print("[CustomSync] Final sync zombie " .. data.id .. " set to (" .. data.x .. "," .. data.y .. ") health:" .. data.health .. " direction:" .. data.direction)
+                    end
+                    CustomSync.zombieTargets[id] = nil
+                end
+                break
+            end
+        end
+    end
+end
+
 Events.OnServerCommand.Add(onServerCommand)
 Events.OnContainerUpdate.Add(onContainerUpdate)
+
+Events.OnTick.Add(CustomSync.interpolateZombies)

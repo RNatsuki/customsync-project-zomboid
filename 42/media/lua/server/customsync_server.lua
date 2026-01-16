@@ -1,5 +1,7 @@
 require "CustomSync"
 
+print("[CustomSync] Server script loaded")
+
 local tickCounter = 0
 
 -- Cache for dynamic updates
@@ -10,10 +12,7 @@ local lastDebug = 0
 local function onInitGlobalModData()
     CustomSync.UPDATE_INTERVAL = SandboxVars.CustomSync.UpdateInterval or CustomSync.UPDATE_INTERVAL
     CustomSync.SYNC_DISTANCE = SandboxVars.CustomSync.SyncDistance or CustomSync.SYNC_DISTANCE
-    local debugVal = SandboxVars.CustomSync.DebugLogs or 0
-    CustomSync.DEBUG = debugVal == 1
-    lastDebug = debugVal
-    print("[CustomSync] DEBUG initialized to " .. tostring(CustomSync.DEBUG) .. ", SandboxVars.DebugLogs = " .. tostring(debugVal))
+    -- CustomSync.DEBUG = debugVal == 1  -- Commented out to keep default true
 end
 
 local function onTick()
@@ -82,16 +81,24 @@ function CustomSync.syncPlayers()
 end
 
 function CustomSync.syncZombies()
+    print("[CustomSync] Syncing zombies...")
     local zombies = {}
     local cell = getCell()
     if not cell then return end
 
     local players = getOnlinePlayers()
     local zombieList = cell:getZombieList()
+    local maxZombies = 50
+    local count = 0
+
     if zombieList then
         for i = 0, zombieList:size() - 1 do
             local zombie = zombieList:get(i)
             if zombie then
+                if count >= maxZombies then
+                    break
+                end
+
                 local zx, zy = zombie:getX(), zombie:getY()
                 local nearPlayer = false
                 for j = 0, players:size() - 1 do
@@ -104,15 +111,30 @@ function CustomSync.syncZombies()
                         end
                     end
                 end
+
                 if nearPlayer then
-                    table.insert(zombies, {
-                        id = zombie:getOnlineID(),
-                        x = zombie:getX(),
-                        y = zombie:getY(),
-                        z = zombie:getZ(),
-                        health = zombie:getHealth(),
-                        state = zombie:getCurrentState()
-                    })
+                    local success, zombieData = pcall(function()
+                        return {
+                            id = zombie:getOnlineID(),
+                            x = zombie:getX(),
+                            y = zombie:getY(),
+                            z = zombie:getZ(),
+                            health = zombie:getHealth(),
+                            direction = zombie:getDirectionAngle()
+                        }
+                    end)
+
+                    if success and zombieData then
+                        if CustomSync.DEBUG then
+                            print("[CustomSync] Syncing zombie " .. zombieData.id .. " at (" .. zombieData.x .. "," .. zombieData.y .. ") health:" .. zombieData.health .. " direction:" .. zombieData.direction)
+                        end
+                        table.insert(zombies, zombieData)
+                        count = count + 1
+                    else
+                        if CustomSync.DEBUG then
+                            print("[CustomSync] Error syncing zombie " .. tostring(zombie:getOnlineID()) .. ": " .. tostring(zombieData))
+                        end
+                    end
                 end
             end
         end
