@@ -7,11 +7,13 @@ local tickCounter = 0
 -- Cache for dynamic updates
 local lastUpdateInterval = CustomSync.UPDATE_INTERVAL
 local lastSyncDistance = CustomSync.SYNC_DISTANCE
+local lastMaxZombies = 50
 local lastDebug = 0
 
 local function onInitGlobalModData()
     CustomSync.UPDATE_INTERVAL = SandboxVars.CustomSync.UpdateInterval or CustomSync.UPDATE_INTERVAL
     CustomSync.SYNC_DISTANCE = SandboxVars.CustomSync.SyncDistance or CustomSync.SYNC_DISTANCE
+    CustomSync.MAX_ZOMBIES = SandboxVars.CustomSync.MaxZombies or 50
     -- CustomSync.DEBUG = debugVal == 1  -- Commented out to keep default true
 end
 
@@ -31,6 +33,13 @@ local function onTick()
         lastSyncDistance = CustomSync.SYNC_DISTANCE
         if CustomSync.DEBUG then
             print("[CustomSync] Updated SYNC_DISTANCE to " .. CustomSync.SYNC_DISTANCE)
+        end
+    end
+    if SandboxVars.CustomSync.MaxZombies and SandboxVars.CustomSync.MaxZombies ~= lastMaxZombies then
+        CustomSync.MAX_ZOMBIES = SandboxVars.CustomSync.MaxZombies
+        lastMaxZombies = CustomSync.MAX_ZOMBIES
+        if CustomSync.DEBUG then
+            print("[CustomSync] Updated MAX_ZOMBIES to " .. CustomSync.MAX_ZOMBIES)
         end
     end
     if SandboxVars.CustomSync.DebugLogs and SandboxVars.CustomSync.DebugLogs ~= lastDebug then
@@ -88,7 +97,7 @@ function CustomSync.syncZombies()
 
     local players = getOnlinePlayers()
     local zombieList = cell:getZombieList()
-    local maxZombies = 50
+    local maxZombies = CustomSync.MAX_ZOMBIES
     local count = 0
 
     if zombieList then

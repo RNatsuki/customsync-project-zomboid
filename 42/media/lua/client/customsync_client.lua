@@ -202,8 +202,8 @@ function CustomSync.interpolateZombies()
                 local dy = data.y - cy
                 local dz = data.z - cz
                 local dist = math.sqrt(dx*dx + dy*dy + dz*dz)
-                if dist > 0.1 then
-                    local speed = 0.2 -- adjust for smoothness
+                if dist > 0.01 then
+                    local speed = SandboxVars.CustomSync.InterpolationSpeed or 0.2 -- adjust for smoothness
                     local moveDist = speed
                     if moveDist > dist then moveDist = dist end
                     local nx = cx + (dx / dist) * moveDist

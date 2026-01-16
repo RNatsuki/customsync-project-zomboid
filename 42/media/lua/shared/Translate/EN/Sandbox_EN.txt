@@ -4,6 +4,10 @@ Sandbox_EN = {
     Sandbox_CustomSync_UpdateInterval_tooltip = "How often to sync players, zombies, and vehicles in ticks (higher = less frequent, less load). Recommended: 600+ for low lag.",
     Sandbox_CustomSync_SyncDistance = "Sync Distance",
     Sandbox_CustomSync_SyncDistance_tooltip = "Maximum distance in squares to sync entities (higher = more entities synced, more load).",
+    Sandbox_CustomSync_MaxZombies = "Max Zombies to Sync",
+    Sandbox_CustomSync_MaxZombies_tooltip = "Maximum number of zombies to sync per update (higher = more accurate but more load).",
+    Sandbox_CustomSync_InterpolationSpeed = "Zombie Interpolation Speed",
+    Sandbox_CustomSync_InterpolationSpeed_tooltip = "How fast zombies move to their synced positions (lower = smoother but slower, higher = snappier).",
     Sandbox_CustomSync_DebugLogs = "Enable Debug Logging",
     Sandbox_CustomSync_DebugLogs_tooltip = "Enable or disable debug log messages in the console.",
 }
