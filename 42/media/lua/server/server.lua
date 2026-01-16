@@ -233,48 +233,9 @@ function CustomSync.syncPlayerInventory(player)
     end
 end
 
-function CustomSync.syncPlayerAppearance(player)
-    if not player then return end
-    local wornItems = player:getWornItems()
-    local items = CustomSync.serializeInventory(wornItems, 0)
-    local data = {
-        id = player:getOnlineID(),
-        wornItems = items
-    }
-    if CustomSync.DEBUG then
-        print("[CustomSync] Sending appearance sync for player " .. player:getOnlineID() .. " with " .. #items .. " worn items")
-    end
-    local success, err = pcall(sendServerCommand, CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_APPEARANCE, {data})
-    if not success then
-        print("[CustomSync] Error syncing player appearance: " .. tostring(err))
-    end
-end
 
-function CustomSync.syncAppearance()
-    local players = getOnlinePlayers()
-    local appearanceData = {}
 
-    for i = 0, players:size() - 1 do
-        local player = players:get(i)
-        if player then
-            local wornItems = player:getWornItems()
-            local items = CustomSync.serializeInventory(wornItems, 0)
-            table.insert(appearanceData, {
-                id = player:getOnlineID(),
-                wornItems = items
-            })
-        end
-    end
 
-    if CustomSync.DEBUG then
-        print("[CustomSync] Syncing appearance for " .. #appearanceData .. " players")
-    end
-
-    local success, err = pcall(sendServerCommand, CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_APPEARANCE, appearanceData)
-    if not success then
-        print("[CustomSync] Error in syncAppearance: " .. tostring(err))
-    end
-end
 
 Events.OnInitGlobalModData.Add(onInitGlobalModData)
 Events.OnTick.Add(onTick)
@@ -282,11 +243,10 @@ Events.OnTick.Add(onTick)
 local function onPlayerDeath(player)
     if player then
         if CustomSync.DEBUG then
-            print("[CustomSync] Player " .. player:getOnlineID() .. " died, syncing inventory and appearance")
+            print("[CustomSync] Player " .. player:getOnlineID() .. " died, syncing inventory")
         end
-        -- Force sync inventory and appearance immediately on death
+        -- Force sync inventory immediately on death
         CustomSync.syncPlayerInventory(player)
-        CustomSync.syncPlayerAppearance(player)
     end
 end
 
@@ -301,9 +261,6 @@ local function onContainerUpdate(container)
         if container == player:getInventory() then
             print("[CustomSync] Syncing inventory for player " .. player:getOnlineID())
             CustomSync.syncPlayerInventory(player)
-        elseif container == player:getWornItems() then
-            print("[CustomSync] Syncing appearance for player " .. player:getOnlineID())
-            CustomSync.syncPlayerAppearance(player)
         end
     end
 end

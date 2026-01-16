@@ -17,8 +17,6 @@ local function onServerCommand(module, command, args)
         CustomSync.applyVehicleSync(args)
     elseif command == CustomSync.COMMAND_SYNC_INVENTORIES then
         CustomSync.applyInventorySync(args)
-    elseif command == CustomSync.COMMAND_SYNC_APPEARANCE then
-        CustomSync.applyAppearanceSync(args)
     end
 end
 
@@ -162,27 +160,6 @@ function CustomSync.deserializeInventory(inventory, items, depth)
     end
 end
 
-function CustomSync.applyAppearanceSync(appearanceData)
-    if not appearanceData or type(appearanceData) ~= "table" then return end
 
-    local localPlayer = getPlayer()
-    if not localPlayer then return end
-
-    if CustomSync.DEBUG then
-        print("[CustomSync] Applying appearance sync for " .. #appearanceData .. " players")
-    end
-
-    for _, data in ipairs(appearanceData) do
-        local player = getPlayerByOnlineID(data.id)
-        if player and player ~= localPlayer and data.wornItems then
-            if CustomSync.DEBUG then
-                print("[CustomSync] Updating appearance for player " .. data.id .. " with " .. #data.wornItems .. " worn items")
-            end
-            local wornItems = player:getWornItems()
-            wornItems:clear()
-            CustomSync.deserializeInventory(wornItems, data.wornItems, 0)
-        end
-    end
-end
 
 Events.OnServerCommand.Add(onServerCommand)
