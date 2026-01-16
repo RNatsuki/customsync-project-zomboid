@@ -4,6 +4,4 @@ Sandbox_EN = {
     Sandbox_CustomSync_UpdateInterval_tooltip = "How often to sync players, zombies, and vehicles in ticks (higher = less frequent, less load). Recommended: 600+ for low lag.",
     Sandbox_CustomSync_SyncDistance = "Sync Distance",
     Sandbox_CustomSync_SyncDistance_tooltip = "Maximum distance in squares to sync entities (higher = more entities synced, more load).",
-    Sandbox_CustomSync_EnableVehicleRespawn = "Enable Vehicle Respawn",
-    Sandbox_CustomSync_EnableVehicleRespawn_tooltip = "If enabled, players who disconnect while in a vehicle will respawn inside it upon reconnection.",
 }

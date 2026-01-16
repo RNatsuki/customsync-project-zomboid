@@ -19,11 +19,3 @@ option CustomSync.SyncDistance
     page = CustomSync,
     translation = CustomSync_SyncDistance,
 }
-
-option CustomSync.EnableVehicleRespawn
-{
-    type = boolean,
-    default = true,
-    page = CustomSync,
-    translation = CustomSync_EnableVehicleRespawn,
-}
