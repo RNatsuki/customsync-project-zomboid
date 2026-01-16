@@ -40,6 +40,8 @@ local function onTick()
 
     -- Sync vehicles
     CustomSync.syncVehicles()
+
+    -- Inventories and appearance synced on update via OnContainerUpdate
 end
 
 Events.OnInitGlobalModData.Add(onInitGlobalModData)
@@ -158,5 +160,145 @@ function CustomSync.syncVehicles()
     sendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_VEHICLES, vehicles)
 end
 
+function CustomSync.syncInventories()
+    local players = getOnlinePlayers()
+    local inventoryData = {}
+
+    for i = 0, players:size() - 1 do
+        local player = players:get(i)
+        if player then
+            local inventory = player:getInventory()
+            local items = CustomSync.serializeInventory(inventory, 0)
+            table.insert(inventoryData, {
+                id = player:getOnlineID(),
+                items = items
+            })
+        end
+    end
+
+    if CustomSync.DEBUG then
+        print("[CustomSync] Syncing inventories for " .. #inventoryData .. " players")
+    end
+
+    sendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_INVENTORIES, inventoryData)
+end
+
+function CustomSync.serializeInventory(inventory, depth)
+    depth = depth or 0
+    if depth > 3 then return {} end  -- Prevent deep recursion and reduce data
+    local items = {}
+    local itemList = inventory:getItems()
+    for j = 0, itemList:size() - 1 do
+        local item = itemList:get(j)
+        if item then
+            local itemData = {
+                type = item:getFullType(),
+                count = item:getCount() or 1,
+                condition = item:getCondition() or 100
+            }
+            if item:getContainer() then
+                itemData.container = CustomSync.serializeInventory(item:getContainer(), depth + 1)
+            end
+            table.insert(items, itemData)
+        end
+    end
+    return items
+end
+
+function CustomSync.syncPlayerInventory(player)
+    if not player then return end
+    local inventory = player:getInventory()
+    local items = CustomSync.serializeInventory(inventory, 0)
+    local data = {
+        id = player:getOnlineID(),
+        items = items
+    }
+    if CustomSync.DEBUG then
+        print("[CustomSync] Sending inventory sync for player " .. player:getOnlineID() .. " with " .. #items .. " items")
+    end
+    local success, err = pcall(sendServerCommand, CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_INVENTORIES, {data})
+    if not success then
+        print("[CustomSync] Error syncing player inventory: " .. tostring(err))
+    end
+end
+
+function CustomSync.syncPlayerAppearance(player)
+    if not player then return end
+    local wornItems = player:getWornItems()
+    local items = CustomSync.serializeInventory(wornItems, 0)
+    local data = {
+        id = player:getOnlineID(),
+        wornItems = items
+    }
+    if CustomSync.DEBUG then
+        print("[CustomSync] Sending appearance sync for player " .. player:getOnlineID() .. " with " .. #items .. " worn items")
+    end
+    local success, err = pcall(sendServerCommand, CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_APPEARANCE, {data})
+    if not success then
+        print("[CustomSync] Error syncing player appearance: " .. tostring(err))
+    end
+end
+
+function CustomSync.syncAppearance()
+    local players = getOnlinePlayers()
+    local appearanceData = {}
+
+    for i = 0, players:size() - 1 do
+        local player = players:get(i)
+        if player then
+            local wornItems = player:getWornItems()
+            local items = CustomSync.serializeInventory(wornItems, 0)
+            table.insert(appearanceData, {
+                id = player:getOnlineID(),
+                wornItems = items
+            })
+        end
+    end
+
+    if CustomSync.DEBUG then
+        print("[CustomSync] Syncing appearance for " .. #appearanceData .. " players")
+    end
+
+    local success, err = pcall(sendServerCommand, CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_APPEARANCE, appearanceData)
+    if not success then
+        print("[CustomSync] Error in syncAppearance: " .. tostring(err))
+    end
+end
+
 Events.OnInitGlobalModData.Add(onInitGlobalModData)
 Events.OnTick.Add(onTick)
+
+local function onPlayerDeath(player)
+    if player then
+        if CustomSync.DEBUG then
+            print("[CustomSync] Player " .. player:getOnlineID() .. " died, syncing inventory and appearance")
+        end
+        -- Force sync inventory and appearance immediately on death
+        CustomSync.syncPlayerInventory(player)
+        CustomSync.syncPlayerAppearance(player)
+    end
+end
+
+Events.OnPlayerDeath.Add(onPlayerDeath)
+
+local function onContainerUpdate(container)
+    if not container or not container.getParent then return end
+    local parent = container:getParent()
+    if not parent or not instanceof then return end
+    if instanceof(parent, "IsoPlayer") then
+        local player = parent
+        if container == player:getInventory() then
+            if CustomSync.DEBUG then
+                print("[CustomSync] Syncing inventory for player " .. player:getOnlineID())
+            end
+            CustomSync.syncPlayerInventory(player)
+        elseif container == player:getWornItems() then
+            if CustomSync.DEBUG then
+                print("[CustomSync] Syncing appearance for player " .. player:getOnlineID())
+            end
+            CustomSync.syncPlayerAppearance(player)
+        end
+    end
+end
+
+Events.OnContainerUpdate.Add(onContainerUpdate)

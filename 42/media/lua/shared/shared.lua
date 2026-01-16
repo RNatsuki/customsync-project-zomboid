@@ -10,6 +10,8 @@ CustomSync.DEBUG = true -- Set to false to disable debug logging
 CustomSync.COMMAND_SYNC_PLAYERS = "syncPlayers"
 CustomSync.COMMAND_SYNC_ZOMBIES = "syncZombies"
 CustomSync.COMMAND_SYNC_VEHICLES = "syncVehicles"
+CustomSync.COMMAND_SYNC_INVENTORIES = "syncInventories"
+CustomSync.COMMAND_SYNC_APPEARANCE = "syncAppearance"
 
 -- Helper functions
 function CustomSync.getDistanceSq(x1, y1, x2, y2)

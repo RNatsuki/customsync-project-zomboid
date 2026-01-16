@@ -9,6 +9,10 @@ local function onServerCommand(module, command, args)
         CustomSync.applyZombieSync(args)
     elseif command == CustomSync.COMMAND_SYNC_VEHICLES then
         CustomSync.applyVehicleSync(args)
+    elseif command == CustomSync.COMMAND_SYNC_INVENTORIES then
+        CustomSync.applyInventorySync(args)
+    elseif command == CustomSync.COMMAND_SYNC_APPEARANCE then
+        CustomSync.applyAppearanceSync(args)
     end
 end
 
@@ -110,6 +114,67 @@ function CustomSync.applyVehicleSync(vehicleData)
                 vehicle:setZ(data.z)
                 -- Speed and health
             end
+        end
+    end
+end
+
+function CustomSync.applyInventorySync(inventoryData)
+    if not inventoryData or type(inventoryData) ~= "table" then return end
+
+    local localPlayer = getPlayer()
+    if not localPlayer then return end
+
+    if CustomSync.DEBUG then
+        print("[CustomSync] Applying inventory sync for " .. #inventoryData .. " players")
+    end
+
+    for _, data in ipairs(inventoryData) do
+        local player = getPlayerByOnlineID(data.id)
+        if player and player ~= localPlayer and data.items then
+            if CustomSync.DEBUG then
+                print("[CustomSync] Updating inventory for player " .. data.id .. " with " .. #data.items .. " items")
+            end
+            local inventory = player:getInventory()
+            inventory:clear()
+            CustomSync.deserializeInventory(inventory, data.items, 0)
+        end
+    end
+end
+
+function CustomSync.deserializeInventory(inventory, items, depth)
+    depth = depth or 0
+    if depth > 3 then return end  -- Prevent deep recursion
+    for _, itemData in ipairs(items) do
+        local item = InventoryItemFactory.CreateItem(itemData.type)
+        if item then
+            item:setCondition(itemData.condition)
+            inventory:addItem(item)
+            if itemData.container then
+                CustomSync.deserializeInventory(item:getContainer(), itemData.container, depth + 1)
+            end
+        end
+    end
+end
+
+function CustomSync.applyAppearanceSync(appearanceData)
+    if not appearanceData or type(appearanceData) ~= "table" then return end
+
+    local localPlayer = getPlayer()
+    if not localPlayer then return end
+
+    if CustomSync.DEBUG then
+        print("[CustomSync] Applying appearance sync for " .. #appearanceData .. " players")
+    end
+
+    for _, data in ipairs(appearanceData) do
+        local player = getPlayerByOnlineID(data.id)
+        if player and player ~= localPlayer and data.wornItems then
+            if CustomSync.DEBUG then
+                print("[CustomSync] Updating appearance for player " .. data.id .. " with " .. #data.wornItems .. " worn items")
+            end
+            local wornItems = player:getWornItems()
+            wornItems:clear()
+            CustomSync.deserializeInventory(wornItems, data.wornItems, 0)
         end
     end
 end
