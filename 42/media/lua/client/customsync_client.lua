@@ -160,6 +160,32 @@ function CustomSync.deserializeInventory(inventory, items, depth)
     end
 end
 
-
+local function onContainerUpdate(container)
+    if not container then return end
+    if not container.getParent then return end
+    if not getPlayer then return end
+    local player = getPlayer()
+    if not player then return end
+    local parent = container:getParent()
+    local isPlayerContainer = false
+    while parent do
+        if parent == player then
+            isPlayerContainer = true
+            break
+        end
+        if type(parent.getParent) == "function" then
+            parent = parent:getParent()
+        else
+            break
+        end
+    end
+    if isPlayerContainer then
+        local inventory = player:getInventory()
+        if inventory then
+            inventory:setDrawDirty(true)
+        end
+    end
+end
 
 Events.OnServerCommand.Add(onServerCommand)
+Events.OnContainerUpdate.Add(onContainerUpdate)
