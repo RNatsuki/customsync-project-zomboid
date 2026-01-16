@@ -19,3 +19,13 @@ option CustomSync.SyncDistance
     page = CustomSync,
     translation = CustomSync_SyncDistance,
 }
+
+option CustomSync.DebugLogs
+{
+    type = integer,
+    default = 0,
+    min = 0,
+    max = 1,
+    page = CustomSync,
+    translation = CustomSync_DebugLogs,
+}

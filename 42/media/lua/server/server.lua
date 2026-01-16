@@ -5,10 +5,15 @@ local tickCounter = 0
 -- Cache for dynamic updates
 local lastUpdateInterval = CustomSync.UPDATE_INTERVAL
 local lastSyncDistance = CustomSync.SYNC_DISTANCE
+local lastDebug = 0
 
 local function onInitGlobalModData()
     CustomSync.UPDATE_INTERVAL = SandboxVars.CustomSync.UpdateInterval or CustomSync.UPDATE_INTERVAL
     CustomSync.SYNC_DISTANCE = SandboxVars.CustomSync.SyncDistance or CustomSync.SYNC_DISTANCE
+    local debugVal = SandboxVars.CustomSync.DebugLogs or 0
+    CustomSync.DEBUG = debugVal == 1
+    lastDebug = debugVal
+    print("[CustomSync] DEBUG initialized to " .. tostring(CustomSync.DEBUG) .. ", SandboxVars.DebugLogs = " .. tostring(debugVal))
 end
 
 local function onTick()
@@ -28,6 +33,11 @@ local function onTick()
         if CustomSync.DEBUG then
             print("[CustomSync] Updated SYNC_DISTANCE to " .. CustomSync.SYNC_DISTANCE)
         end
+    end
+    if SandboxVars.CustomSync.DebugLogs and SandboxVars.CustomSync.DebugLogs ~= lastDebug then
+        lastDebug = SandboxVars.CustomSync.DebugLogs
+        CustomSync.DEBUG = lastDebug == 1
+        print("[CustomSync] Debug logging " .. (CustomSync.DEBUG and "enabled" or "disabled"))
     end
 
     if tickCounter % CustomSync.UPDATE_INTERVAL ~= 0 then return end
@@ -168,17 +178,18 @@ function CustomSync.syncInventories()
         local player = players:get(i)
         if player then
             local inventory = player:getInventory()
-            local items = CustomSync.serializeInventory(inventory, 0)
-            table.insert(inventoryData, {
-                id = player:getOnlineID(),
-                items = items
-            })
+            if inventory then
+                local items = CustomSync.serializeInventory(inventory, 0)
+                table.insert(inventoryData, {
+                    id = player:getOnlineID(),
+                    items = items
+                })
+                print("[CustomSync] Serialized inventory for player " .. player:getOnlineID() .. " with " .. #items .. " items")
+            end
         end
     end
 
-    if CustomSync.DEBUG then
-        print("[CustomSync] Syncing inventories for " .. #inventoryData .. " players")
-    end
+    print("[CustomSync] Syncing inventories for " .. #inventoryData .. " players")
 
     sendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_INVENTORIES, inventoryData)
 end
@@ -288,14 +299,10 @@ local function onContainerUpdate(container)
     if instanceof(parent, "IsoPlayer") then
         local player = parent
         if container == player:getInventory() then
-            if CustomSync.DEBUG then
-                print("[CustomSync] Syncing inventory for player " .. player:getOnlineID())
-            end
+            print("[CustomSync] Syncing inventory for player " .. player:getOnlineID())
             CustomSync.syncPlayerInventory(player)
         elseif container == player:getWornItems() then
-            if CustomSync.DEBUG then
-                print("[CustomSync] Syncing appearance for player " .. player:getOnlineID())
-            end
+            print("[CustomSync] Syncing appearance for player " .. player:getOnlineID())
             CustomSync.syncPlayerAppearance(player)
         end
     end

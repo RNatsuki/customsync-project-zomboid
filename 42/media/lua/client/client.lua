@@ -1,7 +1,13 @@
 require "CustomSync"
 
+print("[CustomSync] Client script loaded")
+
 local function onServerCommand(module, command, args)
     if module ~= CustomSync.MOD_ID then return end
+
+    if CustomSync.DEBUG then
+        print("[CustomSync] Received command: " .. command)
+    end
 
     if command == CustomSync.COMMAND_SYNC_PLAYERS then
         CustomSync.applyPlayerSync(args)
