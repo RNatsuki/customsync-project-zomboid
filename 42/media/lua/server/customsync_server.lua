@@ -18,6 +18,7 @@ local function onInitGlobalModData()
     CustomSync.lastZombiePositions = {}
     CustomSync.lastPlayerPositions = {}
     CustomSync.lastZombieHealth = {}
+    CustomSync.lastZombieCrawling = {}
 end
 
 local function onTick()
@@ -128,10 +129,8 @@ function CustomSync.syncZombies()
                 if nearPlayer then
                     -- Only sync living zombies
                     if zombie:getHealth() > 0 then
-                        -- Throttling: Only sync if zombie moved significantly
-                        local lastPos = CustomSync.lastZombiePositions[zombieId]
-                        local currentPos = {x = zx, y = zy}
-                        if not lastPos or CustomSync.getDistanceSq(lastPos.x, lastPos.y, currentPos.x, currentPos.y) > CustomSync.MIN_MOVE_DISTANCE^2 then
+                        -- Throttling: Only sync if zombie moved significantly, or always for crawling zombies
+                        if zombie:isCrawling() or not lastPos or CustomSync.getDistanceSq(lastPos.x, lastPos.y, currentPos.x, currentPos.y) > CustomSync.MIN_MOVE_DISTANCE^2 then
                             CustomSync.lastZombiePositions[zombieId] = currentPos
                             local success, zombieData = pcall(function()
                                 return {
@@ -163,6 +162,7 @@ function CustomSync.syncZombies()
                 if zombie:getHealth() <= 0 then
                     CustomSync.lastZombiePositions[zombieId] = nil
                     CustomSync.lastZombieHealth[zombieId] = nil
+                    CustomSync.lastZombieCrawling[zombieId] = nil
                 end
             end
         end
@@ -363,8 +363,10 @@ local function onZombieUpdate(zombie)
     if not zombie then return end
     local id = zombie:getOnlineID()
     local currentHealth = zombie:getHealth()
+    local currentCrawling = zombie:isCrawling()
     local lastHealth = CustomSync.lastZombieHealth[id]
-    if lastHealth and lastHealth ~= currentHealth then
+    local lastCrawling = CustomSync.lastZombieCrawling[id]
+    if (lastHealth and lastHealth ~= currentHealth) or (lastCrawling ~= nil and lastCrawling ~= currentCrawling) then
         -- Check if zombie is near a player
         local zx, zy = zombie:getX(), zombie:getY()
         local players = getOnlinePlayers()
@@ -380,7 +382,7 @@ local function onZombieUpdate(zombie)
             end
         end
         if nearPlayer then
-            -- Health changed, send immediate sync
+            -- Health or crawling changed, send immediate sync
             local zombieData = {
                 id = id,
                 x = zombie:getX(),
@@ -388,15 +390,16 @@ local function onZombieUpdate(zombie)
                 z = zombie:getZ(),
                 health = currentHealth,
                 direction = zombie:getDirectionAngle(),
-                crawling = zombie:isCrawling()
+                crawling = currentCrawling
             }
             sendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE, {zombieData})
             if CustomSync.DEBUG then
-                print("[CustomSync] Health changed for zombie " .. id .. " from " .. lastHealth .. " to " .. currentHealth)
+                print("[CustomSync] State changed for zombie " .. id .. " health:" .. lastHealth .. "->" .. currentHealth .. " crawling:" .. tostring(lastCrawling) .. "->" .. tostring(currentCrawling))
             end
         end
     end
     CustomSync.lastZombieHealth[id] = currentHealth
+    CustomSync.lastZombieCrawling[id] = currentCrawling
 end
 
 Events.OnZombieUpdate.Add(onZombieUpdate)
