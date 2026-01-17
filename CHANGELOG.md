@@ -1,5 +1,8 @@
 ## Changelog
 
+### v1.2.1 - January 17, 2026
+- **Server Startup Crash Fix**: Added safety checks to prevent NullPointerException when sending server commands during world initialization before udpEngine is available.
+
 ### v1.2.0 - January 16, 2026
 - **Improved Zombie Damage and Death Handling**: Fixed issues with hits not registering and zombies dying improperly. Removed zombie interpolation to ensure accurate positions, preventing desync during attacks.
 - **Crawling State Synchronization**: Added real-time sync for zombie crawling state to maintain correct hitboxes and positions for downed zombies.

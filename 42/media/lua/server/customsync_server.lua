@@ -2,6 +2,12 @@ require "CustomSync"
 
 print("[CustomSync] Server script loaded")
 
+local function safeSendServerCommand(modId, command, data)
+    if zombie.network.GameServer.udpEngine then
+        sendServerCommand(modId, command, data)
+    end
+end
+
 local tickCounter = 0
 
 -- Cache for dynamic updates
@@ -90,7 +96,7 @@ function CustomSync.syncPlayers()
     end
 
     -- Send to all clients
-    sendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_PLAYERS, playerData)
+    safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_PLAYERS, playerData)
 end
 
 function CustomSync.syncZombies()
@@ -173,7 +179,7 @@ function CustomSync.syncZombies()
     end
 
     -- Batch and send
-    sendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES, zombies)
+    safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES, zombies)
 end
 
 function CustomSync.syncVehicles()
@@ -217,7 +223,7 @@ function CustomSync.syncVehicles()
         print("[CustomSync] Syncing " .. #vehicles .. " vehicles")
     end
 
-    sendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_VEHICLES, vehicles)
+    safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_VEHICLES, vehicles)
 end
 
 function CustomSync.syncInventories()
@@ -241,7 +247,7 @@ function CustomSync.syncInventories()
 
     print("[CustomSync] Syncing inventories for " .. #inventoryData .. " players")
 
-    sendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_INVENTORIES, inventoryData)
+    safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_INVENTORIES, inventoryData)
 end
 
 function CustomSync.serializeInventory(inventory, depth)
@@ -277,7 +283,7 @@ function CustomSync.syncPlayerInventory(player)
     if CustomSync.DEBUG then
         print("[CustomSync] Sending inventory sync for player " .. player:getOnlineID() .. " with " .. #items .. " items")
     end
-    local success, err = pcall(sendServerCommand, CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_INVENTORIES, {data})
+    local success, err = pcall(safeSendServerCommand, CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_INVENTORIES, {data})
     if not success then
         print("[CustomSync] Error syncing player inventory: " .. tostring(err))
     end
@@ -331,7 +337,7 @@ local function onHitZombie(zombie, character, handWeapon, damage)
         direction = zombie:getDirectionAngle(),
         crawling = zombie:isCrawling()
     }
-    sendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE, {zombieData})
+    safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE, {zombieData})
     if CustomSync.DEBUG then
         print("[CustomSync] Immediate sync for hit zombie " .. zombieData.id)
     end
@@ -351,7 +357,7 @@ local function onZombieDead(zombie)
         direction = zombie:getDirectionAngle(),
         crawling = zombie:isCrawling()
     }
-    sendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE, {zombieData})
+    safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE, {zombieData})
     if CustomSync.DEBUG then
         print("[CustomSync] Zombie died, sending death sync for " .. zombieData.id)
     end
@@ -392,7 +398,7 @@ local function onZombieUpdate(zombie)
                 direction = zombie:getDirectionAngle(),
                 crawling = currentCrawling
             }
-            sendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE, {zombieData})
+            safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE, {zombieData})
             if CustomSync.DEBUG then
                 print("[CustomSync] State changed for zombie " .. id .. " health:" .. lastHealth .. "->" .. currentHealth .. " crawling:" .. tostring(lastCrawling) .. "->" .. tostring(currentCrawling))
             end
@@ -420,7 +426,7 @@ local function onPlayerUpdate(player)
             health = player:getBodyDamage():getOverallBodyHealth(),
             animation = player:getAnimationDebug()
         }
-        sendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_PLAYERS_IMMEDIATE, {playerData})
+        safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_PLAYERS_IMMEDIATE, {playerData})
         if CustomSync.DEBUG then
             print("[CustomSync] Immediate sync for player " .. playerId)
         end
@@ -440,7 +446,7 @@ local function onAIStateChange(character, newState, oldState)
         health = character:getHealth(),
         direction = character:getDirectionAngle()
     }
-    sendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE, {zombieData})
+    safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE, {zombieData})
     if CustomSync.DEBUG then
         print("[CustomSync] Sync on AI state change for zombie " .. zombieData.id .. " to state " .. tostring(newState))
     end
@@ -468,7 +474,7 @@ local function onWeaponSwingHitPoint(character, weapon, hitX, hitY, hitZ)
                             health = zombie:getHealth(),
                             direction = zombie:getDirectionAngle()
                         }
-                        sendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE, {zombieData})
+                        safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE, {zombieData})
                         if CustomSync.DEBUG then
                             print("[CustomSync] Sync on weapon swing hit for zombie " .. zombieData.id)
                         end
@@ -513,8 +519,8 @@ local function onCharacterCollide(character1, character2)
         health = zombie:getHealth(),
         direction = zombie:getDirectionAngle()
     }
-    sendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_PLAYERS_IMMEDIATE, {playerData})
-    sendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE, {zombieData})
+    safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_PLAYERS_IMMEDIATE, {playerData})
+    safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE, {zombieData})
     if CustomSync.DEBUG then
         print("[CustomSync] Sync on character collision between player " .. playerData.id .. " and zombie " .. zombieData.id)
     end
@@ -538,7 +544,7 @@ local function onPlayerMove(player)
             health = player:getBodyDamage():getOverallBodyHealth(),
             animation = player:getAnimationDebug()
         }
-        sendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_PLAYERS_IMMEDIATE, {playerData})
+        safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_PLAYERS_IMMEDIATE, {playerData})
         if CustomSync.DEBUG then
             print("[CustomSync] Sync on player move for " .. playerId)
         end
@@ -560,7 +566,7 @@ local function onPlayerGetDamage(player, damageType, damageAmount)
         health = health,
         animation = player:getAnimationDebug()
     }
-    sendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_PLAYERS_IMMEDIATE, {playerData})
+    safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_PLAYERS_IMMEDIATE, {playerData})
     if CustomSync.DEBUG then
         print("[CustomSync] Sync on player get damage for " .. playerData.id .. " damage: " .. tostring(damageAmount))
     end
@@ -589,7 +595,7 @@ local function onWeaponSwing(character, weapon)
                             health = zombie:getHealth(),
                             direction = zombie:getDirectionAngle()
                         }
-                        sendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE, {zombieData})
+                        safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE, {zombieData})
                         if CustomSync.DEBUG then
                             print("[CustomSync] Sync on weapon swing for zombie " .. zombieData.id)
                         end
@@ -624,7 +630,7 @@ local function onPlayerAttackFinished(player, weapon, damage, square)
                             health = zombie:getHealth(),
                             direction = zombie:getDirectionAngle()
                         }
-                        sendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE, {zombieData})
+                        safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE, {zombieData})
                         if CustomSync.DEBUG then
                             print("[CustomSync] Sync on player attack finished for zombie " .. zombieData.id)
                         end
