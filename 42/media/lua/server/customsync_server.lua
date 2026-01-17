@@ -13,13 +13,13 @@ local tickCounter = 0
 -- Cache for dynamic updates
 local lastUpdateInterval = CustomSync.UPDATE_INTERVAL
 local lastSyncDistance = CustomSync.SYNC_DISTANCE
-local lastMaxZombies = 50
+local lastMaxZombies = 100
 local lastDebug = 0
 
 local function onInitGlobalModData()
     CustomSync.UPDATE_INTERVAL = SandboxVars.CustomSync.UpdateInterval or CustomSync.UPDATE_INTERVAL
     CustomSync.SYNC_DISTANCE = SandboxVars.CustomSync.SyncDistance or CustomSync.SYNC_DISTANCE
-    CustomSync.MAX_ZOMBIES = SandboxVars.CustomSync.MaxZombies or 50
+    CustomSync.MAX_ZOMBIES = SandboxVars.CustomSync.MaxZombies or 100
     -- CustomSync.DEBUG = debugVal == 1  -- Commented out to keep default true
     CustomSync.lastZombiePositions = {}
     CustomSync.lastPlayerPositions = {}
@@ -101,84 +101,96 @@ end
 
 function CustomSync.syncZombies()
     print("[CustomSync] Syncing zombies...")
-    local zombies = {}
     local cell = getCell()
     if not cell then return end
 
     local players = getOnlinePlayers()
     local zombieList = cell:getZombieList()
-    local maxZombies = CustomSync.MAX_ZOMBIES
-    local count = 0
+    if not zombieList then return end
 
-    if zombieList then
+    -- Update existing active zombies
+    for id, data in pairs(CustomSync.activeZombies) do
+        local exists = false
+        local zombie = nil
         for i = 0, zombieList:size() - 1 do
-            local zombie = zombieList:get(i)
-            if zombie then
-                if count >= maxZombies then
-                    break
+            local z = zombieList:get(i)
+            if z and z:getOnlineID() == id then
+                zombie = z
+                break
+            end
+        end
+        if zombie and zombie:getHealth() > 0 then
+            local zx, zy = zombie:getX(), zombie:getY()
+            local near = false
+            for j = 0, players:size() - 1 do
+                local player = players:get(j)
+                if player then
+                    local px, py = player:getX(), player:getY()
+                    if CustomSync.isWithinSyncDistanceZombies(px, py, zx, zy) then
+                        near = true
+                        break
+                    end
                 end
+            end
+            if near then
+                exists = true
+                -- Update data
+                data.x = zx
+                data.y = zy
+                data.z = zombie:getZ()
+                data.health = zombie:getHealth()
+                data.direction = zombie:getDirectionAngle()
+                data.crawling = zombie:isCrawling()
+            end
+        end
+        if not exists then
+            CustomSync.activeZombies[id] = nil
+        end
+    end
 
-                local zombieId = zombie:getOnlineID()
+    -- Add new nearby zombies
+    for i = 0, zombieList:size() - 1 do
+        local zombie = zombieList:get(i)
+        if zombie and zombie:getHealth() > 0 then
+            local id = zombie:getOnlineID()
+            if not CustomSync.activeZombies[id] then
                 local zx, zy = zombie:getX(), zombie:getY()
-                local nearPlayer = false
+                local near = false
                 for j = 0, players:size() - 1 do
                     local player = players:get(j)
                     if player then
                         local px, py = player:getX(), player:getY()
-                        if CustomSync.isWithinSyncDistance(px, py, zx, zy) then
-                            nearPlayer = true
+                        if CustomSync.isWithinSyncDistanceZombies(px, py, zx, zy) then
+                            near = true
                             break
                         end
                     end
                 end
-
-                if nearPlayer then
-                    -- Only sync living zombies
-                    if zombie:getHealth() > 0 then
-                        -- Throttling: Only sync if zombie moved significantly, or always for crawling zombies
-                        if zombie:isCrawling() or not lastPos or CustomSync.getDistanceSq(lastPos.x, lastPos.y, currentPos.x, currentPos.y) > CustomSync.MIN_MOVE_DISTANCE^2 then
-                            CustomSync.lastZombiePositions[zombieId] = currentPos
-                            local success, zombieData = pcall(function()
-                                return {
-                                    id = zombieId,
-                                    x = zombie:getX(),
-                                    y = zombie:getY(),
-                                    z = zombie:getZ(),
-                                    health = zombie:getHealth(),
-                                    direction = zombie:getDirectionAngle(),
-                                    crawling = zombie:isCrawling()
-                                }
-                            end)
-
-                            if success and zombieData then
-                                if CustomSync.DEBUG then
-                                    print("[CustomSync] Syncing zombie " .. zombieData.id .. " at (" .. zombieData.x .. "," .. zombieData.y .. ") health:" .. zombieData.health .. " direction:" .. zombieData.direction)
-                                end
-                                table.insert(zombies, zombieData)
-                                count = count + 1
-                            else
-                                if CustomSync.DEBUG then
-                                    print("[CustomSync] Error syncing zombie " .. tostring(zombieId) .. ": " .. tostring(zombieData))
-                                end
-                            end
-                        end
-                    end
-                end
-                -- Clean up tracking for dead zombies
-                if zombie:getHealth() <= 0 then
-                    CustomSync.lastZombiePositions[zombieId] = nil
-                    CustomSync.lastZombieHealth[zombieId] = nil
-                    CustomSync.lastZombieCrawling[zombieId] = nil
+                if near then
+                    CustomSync.activeZombies[id] = {
+                        id = id,
+                        x = zx,
+                        y = zy,
+                        z = zombie:getZ(),
+                        health = zombie:getHealth(),
+                        direction = zombie:getDirectionAngle(),
+                        crawling = zombie:isCrawling()
+                    }
                 end
             end
         end
     end
 
-    if CustomSync.DEBUG then
-        print("[CustomSync] Syncing " .. #zombies .. " zombies")
+    -- Convert to list for sending
+    local zombies = {}
+    for id, data in pairs(CustomSync.activeZombies) do
+        table.insert(zombies, data)
     end
 
-    -- Batch and send
+    if CustomSync.DEBUG then
+        print("[CustomSync] Syncing " .. #zombies .. " active zombies")
+    end
+
     safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES, zombies)
 end
 

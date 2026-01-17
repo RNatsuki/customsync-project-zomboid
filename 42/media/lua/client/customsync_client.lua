@@ -75,7 +75,7 @@ function CustomSync.applyZombieSync(zombieData)
 
         if zombie then
             local px, py = localPlayer:getX(), localPlayer:getY()
-            if CustomSync.isWithinSyncDistance(px, py, data.x, data.y) then
+            if CustomSync.isWithinSyncDistanceZombies(px, py, data.x, data.y) then
                 if CustomSync.DEBUG then
                     print("[CustomSync] Applying sync to zombie " .. data.id .. " at (" .. data.x .. "," .. data.y .. ") health:" .. data.health .. " direction:" .. data.direction)
                 end
