@@ -65,6 +65,8 @@ function CustomSync.applyZombieSync(zombieData)
     local zombieList = cell:getZombieList()
     if not zombieList then return end
 
+    local zombiesToKill = {}  -- Collect zombies to set dead after iteration
+
     for _, data in ipairs(zombieData) do
         local zombie = nil
         for i = 0, zombieList:size() - 1 do
@@ -91,10 +93,15 @@ function CustomSync.applyZombieSync(zombieData)
                     zombie:setCrawling(data.crawling)
                 end
                 if data.health <= 0 then
-                    zombie:setDead(true)
+                    table.insert(zombiesToKill, zombie)  -- Collect instead of setting immediately
                 end
             end
         end
+    end
+
+    -- Set dead after iteration to avoid ConcurrentModificationException
+    for _, zombie in ipairs(zombiesToKill) do
+        zombie:setDead(true)
     end
 end
 
@@ -104,6 +111,8 @@ function CustomSync.applyZombieSyncImmediate(zombieData)
     if not cell then return end
     local zombieList = cell:getZombieList()
     if not zombieList then return end
+
+    local zombiesToKill = {}  -- Collect zombies to set dead after iteration
 
     for _, data in ipairs(zombieData) do
         for i = 0, zombieList:size() - 1 do
@@ -118,7 +127,7 @@ function CustomSync.applyZombieSyncImmediate(zombieData)
                     zombie:setCrawling(data.crawling)
                 end
                 if data.health <= 0 then
-                    zombie:setDead(true)
+                    table.insert(zombiesToKill, zombie)  -- Collect instead of setting immediately
                 end
                 if CustomSync.DEBUG then
                     print("[CustomSync] Immediate sync applied to zombie " .. data.id)
@@ -126,6 +135,11 @@ function CustomSync.applyZombieSyncImmediate(zombieData)
                 break
             end
         end
+    end
+
+    -- Set dead after iteration to avoid ConcurrentModificationException
+    for _, zombie in ipairs(zombiesToKill) do
+        zombie:setDead(true)
     end
 end
 
