@@ -24,6 +24,5 @@ function CustomSync.isWithinSyncDistance(x1, y1, x2, y2)
     return CustomSync.getDistanceSq(x1, y1, x2, y2) <= CustomSync.SYNC_DISTANCE^2
 end
 
-CustomSync.zombieTargets = {}
 CustomSync.lastZombiePositions = {}
 CustomSync.lastPlayerPositions = {}
