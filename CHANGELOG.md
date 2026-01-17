@@ -1,5 +1,12 @@
 ## Changelog
 
+### v1.3.0 - January 17, 2026
+- **Global Player Position Sync for Maps**: Removed distance restrictions for player synchronization to ensure all players appear on maps regardless of location, improving visibility in world maps and minimaps.
+- **Enhanced Zombie Consistency**: Implemented an active zombie database on the server to track nearby zombies, updating positions in real-time and removing dead or distant ones, ensuring all clients see zombies in the same locations.
+- **Increased Zombie Sync Distance and Frequency**: Raised zombie sync distance to 100 squares and reduced update interval to 60 ticks for better consistency and responsiveness.
+- **Optimized Zombie Sync Limits**: Increased default maximum zombies per sync from 50 to 100 for broader coverage.
+- **Player Sync Distance for Maps**: Added SYNC_DISTANCE_PLAYERS (200 squares) for extended player visibility on maps without affecting physical movement limits.
+
 ### v1.2.1 - January 17, 2026
 - **Server Startup Crash Fix**: Added safety checks to prevent NullPointerException when sending server commands during world initialization before GameServer and udpEngine are available.
 
