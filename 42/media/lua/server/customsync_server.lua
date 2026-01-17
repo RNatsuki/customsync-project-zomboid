@@ -3,7 +3,7 @@ require "CustomSync"
 print("[CustomSync] Server script loaded")
 
 local function safeSendServerCommand(modId, command, data)
-    if zombie.network.GameServer.udpEngine then
+    if zombie.network.GameServer and zombie.network.GameServer.udpEngine then
         sendServerCommand(modId, command, data)
     end
 end
