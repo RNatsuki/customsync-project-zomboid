@@ -39,12 +39,8 @@ function CustomSync.applyPlayerSync(playerData)
     for _, data in ipairs(playerData) do
         local player = getPlayerByOnlineID(data.id)
         if player and player ~= localPlayer then -- Don't sync self
-            -- Only sync if within distance
-            local px, py = localPlayer:getX(), localPlayer:getY()
-            if CustomSync.isWithinSyncDistance(px, py, data.x, data.y) then
-                -- Store target for interpolation
-                CustomSync.playerTargets[data.id] = data
-            end
+            -- Store target for interpolation (no distance check for map visibility)
+            CustomSync.playerTargets[data.id] = data
         end
     end
 end
@@ -156,14 +152,11 @@ function CustomSync.applyPlayerSyncImmediate(playerData)
     for _, data in ipairs(playerData) do
         local player = getPlayerByOnlineID(data.id)
         if player and player ~= localPlayer then
-            local px, py = localPlayer:getX(), localPlayer:getY()
-            if CustomSync.isWithinSyncDistance(px, py, data.x, data.y) then
-                player:setX(data.x)
-                player:setY(data.y)
-                player:setZ(data.z)
-                if CustomSync.DEBUG then
-                    print("[CustomSync] Immediate sync applied to player " .. data.id)
-                end
+            player:setX(data.x)
+            player:setY(data.y)
+            player:setZ(data.z)
+            if CustomSync.DEBUG then
+                print("[CustomSync] Immediate sync applied to player " .. data.id)
             end
         end
     end
@@ -273,6 +266,8 @@ local function onContainerUpdate(container)
 end
 
 function CustomSync.interpolatePlayers()
+    local idsToRemove = {}  -- Marcar IDs a remover para evitar modificar durante iteración
+
     for id, data in pairs(CustomSync.playerTargets) do
         local player = getPlayerByOnlineID(id)
         if player then
@@ -298,12 +293,17 @@ function CustomSync.interpolatePlayers()
                 if CustomSync.DEBUG then
                     print("[CustomSync] Final sync player " .. data.id .. " set to (" .. data.x .. "," .. data.y .. ")")
                 end
-                CustomSync.playerTargets[id] = nil
+                table.insert(idsToRemove, id)  -- Marcar para remover
             end
         else
             -- Player no longer exists, remove target
-            CustomSync.playerTargets[id] = nil
+            table.insert(idsToRemove, id)  -- Marcar para remover
         end
+    end
+
+    -- Limpiar después de la iteración
+    for _, id in ipairs(idsToRemove) do
+        CustomSync.playerTargets[id] = nil
     end
 end
 
