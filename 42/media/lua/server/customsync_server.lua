@@ -15,6 +15,8 @@ local function onInitGlobalModData()
     CustomSync.SYNC_DISTANCE = SandboxVars.CustomSync.SyncDistance or CustomSync.SYNC_DISTANCE
     CustomSync.MAX_ZOMBIES = SandboxVars.CustomSync.MaxZombies or 50
     -- CustomSync.DEBUG = debugVal == 1  -- Commented out to keep default true
+    CustomSync.lastZombiePositions = {}
+    CustomSync.lastPlayerPositions = {}
 end
 
 local function onTick()
@@ -122,26 +124,33 @@ function CustomSync.syncZombies()
                 end
 
                 if nearPlayer then
-                    local success, zombieData = pcall(function()
-                        return {
-                            id = zombie:getOnlineID(),
-                            x = zombie:getX(),
-                            y = zombie:getY(),
-                            z = zombie:getZ(),
-                            health = zombie:getHealth(),
-                            direction = zombie:getDirectionAngle()
-                        }
-                    end)
+                    -- Throttling: Only sync if zombie moved significantly
+                    local zombieId = zombie:getOnlineID()
+                    local lastPos = CustomSync.lastZombiePositions[zombieId]
+                    local currentPos = {x = zx, y = zy}
+                    if not lastPos or CustomSync.getDistanceSq(lastPos.x, lastPos.y, currentPos.x, currentPos.y) > CustomSync.MIN_MOVE_DISTANCE^2 then
+                        CustomSync.lastZombiePositions[zombieId] = currentPos
+                        local success, zombieData = pcall(function()
+                            return {
+                                id = zombieId,
+                                x = zombie:getX(),
+                                y = zombie:getY(),
+                                z = zombie:getZ(),
+                                health = zombie:getHealth(),
+                                direction = zombie:getDirectionAngle()
+                            }
+                        end)
 
-                    if success and zombieData then
-                        if CustomSync.DEBUG then
-                            print("[CustomSync] Syncing zombie " .. zombieData.id .. " at (" .. zombieData.x .. "," .. zombieData.y .. ") health:" .. zombieData.health .. " direction:" .. zombieData.direction)
-                        end
-                        table.insert(zombies, zombieData)
-                        count = count + 1
-                    else
-                        if CustomSync.DEBUG then
-                            print("[CustomSync] Error syncing zombie " .. tostring(zombie:getOnlineID()) .. ": " .. tostring(zombieData))
+                        if success and zombieData then
+                            if CustomSync.DEBUG then
+                                print("[CustomSync] Syncing zombie " .. zombieData.id .. " at (" .. zombieData.x .. "," .. zombieData.y .. ") health:" .. zombieData.health .. " direction:" .. zombieData.direction)
+                            end
+                            table.insert(zombies, zombieData)
+                            count = count + 1
+                        else
+                            if CustomSync.DEBUG then
+                                print("[CustomSync] Error syncing zombie " .. tostring(zombieId) .. ": " .. tostring(zombieData))
+                            end
                         end
                     end
                 end
@@ -297,3 +306,257 @@ local function onContainerUpdate(container)
 end
 
 Events.OnContainerUpdate.Add(onContainerUpdate)
+
+-- New event handlers for improved sync
+
+local function onHitZombie(zombie, character, handWeapon, damage)
+    if not zombie or not character then return end
+    -- Immediate sync for hit zombie
+    local zombieData = {
+        id = zombie:getOnlineID(),
+        x = zombie:getX(),
+        y = zombie:getY(),
+        z = zombie:getZ(),
+        health = zombie:getHealth(),
+        direction = zombie:getDirectionAngle()
+    }
+    sendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE, {zombieData})
+    if CustomSync.DEBUG then
+        print("[CustomSync] Immediate sync for hit zombie " .. zombieData.id)
+    end
+end
+
+Events.OnHitZombie.Add(onHitZombie)
+
+local function onPlayerUpdate(player)
+    if not player then return end
+    -- Throttled sync for player movement
+    local playerId = player:getOnlineID()
+    local lastPos = CustomSync.lastPlayerPositions[playerId]
+    local currentPos = {x = player:getX(), y = player:getY()}
+    if not lastPos or CustomSync.getDistanceSq(lastPos.x, lastPos.y, currentPos.x, currentPos.y) > CustomSync.MIN_MOVE_DISTANCE^2 then
+        CustomSync.lastPlayerPositions[playerId] = currentPos
+        local playerData = {
+            id = playerId,
+            x = currentPos.x,
+            y = currentPos.y,
+            z = player:getZ(),
+            health = player:getBodyDamage():getOverallBodyHealth(),
+            animation = player:getAnimationDebug()
+        }
+        sendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_PLAYERS_IMMEDIATE, {playerData})
+        if CustomSync.DEBUG then
+            print("[CustomSync] Immediate sync for player " .. playerId)
+        end
+    end
+end
+
+Events.OnPlayerUpdate.Add(onPlayerUpdate)
+
+local function onAIStateChange(character, newState, oldState)
+    if not character or not instanceof(character, "IsoZombie") then return end
+    -- Sync zombie on state change (e.g., from idle to attacking)
+    local zombieData = {
+        id = character:getOnlineID(),
+        x = character:getX(),
+        y = character:getY(),
+        z = character:getZ(),
+        health = character:getHealth(),
+        direction = character:getDirectionAngle()
+    }
+    sendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE, {zombieData})
+    if CustomSync.DEBUG then
+        print("[CustomSync] Sync on AI state change for zombie " .. zombieData.id .. " to state " .. tostring(newState))
+    end
+end
+
+Events.OnAIStateChange.Add(onAIStateChange)
+
+local function onWeaponSwingHitPoint(character, weapon, hitX, hitY, hitZ)
+    if not character or not weapon or type(hitX) ~= "number" or type(hitY) ~= "number" then return end
+    -- Check if hitting a zombie and sync nearby zombies
+    local cell = getCell()
+    if cell then
+        local zombieList = cell:getZombieList()
+        if zombieList then
+            for i = 0, zombieList:size() - 1 do
+                local zombie = zombieList:get(i)
+                if zombie then
+                    local zx, zy = zombie:getX(), zombie:getY()
+                    if type(zx) == "number" and type(zy) == "number" and CustomSync.getDistanceSq(zx, zy, hitX, hitY) < 4 then -- Within 2 squares
+                        local zombieData = {
+                            id = zombie:getOnlineID(),
+                            x = zx,
+                            y = zy,
+                            z = zombie:getZ(),
+                            health = zombie:getHealth(),
+                            direction = zombie:getDirectionAngle()
+                        }
+                        sendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE, {zombieData})
+                        if CustomSync.DEBUG then
+                            print("[CustomSync] Sync on weapon swing hit for zombie " .. zombieData.id)
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+Events.OnWeaponSwingHitPoint.Add(onWeaponSwingHitPoint)
+
+-- Additional event handlers for further sync improvements
+
+local function onCharacterCollide(character1, character2)
+    if not character1 or not character2 then return end
+    -- Check if one is player and one is zombie
+    local player, zombie
+    if instanceof(character1, "IsoPlayer") and instanceof(character2, "IsoZombie") then
+        player = character1
+        zombie = character2
+    elseif instanceof(character1, "IsoZombie") and instanceof(character2, "IsoPlayer") then
+        player = character2
+        zombie = character1
+    else
+        return -- Not player-zombie collision
+    end
+    -- Immediate sync for both to correct positions after collision
+    local playerData = {
+        id = player:getOnlineID(),
+        x = player:getX(),
+        y = player:getY(),
+        z = player:getZ(),
+        health = player:getBodyDamage():getOverallBodyHealth(),
+        animation = player:getAnimationDebug()
+    }
+    local zombieData = {
+        id = zombie:getOnlineID(),
+        x = zombie:getX(),
+        y = zombie:getY(),
+        z = zombie:getZ(),
+        health = zombie:getHealth(),
+        direction = zombie:getDirectionAngle()
+    }
+    sendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_PLAYERS_IMMEDIATE, {playerData})
+    sendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE, {zombieData})
+    if CustomSync.DEBUG then
+        print("[CustomSync] Sync on character collision between player " .. playerData.id .. " and zombie " .. zombieData.id)
+    end
+end
+
+Events.OnCharacterCollide.Add(onCharacterCollide)
+
+local function onPlayerMove(player)
+    if not player then return end
+    -- Throttled sync for player movement
+    local playerId = player:getOnlineID()
+    local lastPos = CustomSync.lastPlayerPositions[playerId]
+    local currentPos = {x = player:getX(), y = player:getY()}
+    if not lastPos or CustomSync.getDistanceSq(lastPos.x, lastPos.y, currentPos.x, currentPos.y) > CustomSync.MIN_MOVE_DISTANCE^2 then
+        CustomSync.lastPlayerPositions[playerId] = currentPos
+        local playerData = {
+            id = playerId,
+            x = currentPos.x,
+            y = currentPos.y,
+            z = player:getZ(),
+            health = player:getBodyDamage():getOverallBodyHealth(),
+            animation = player:getAnimationDebug()
+        }
+        sendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_PLAYERS_IMMEDIATE, {playerData})
+        if CustomSync.DEBUG then
+            print("[CustomSync] Sync on player move for " .. playerId)
+        end
+    end
+end
+
+Events.OnPlayerMove.Add(onPlayerMove)
+
+local function onPlayerGetDamage(player, damageType, damageAmount)
+    if not player then return end
+    -- Immediate sync for player health after taking damage
+    local bodyDamage = player:getBodyDamage()
+    local health = bodyDamage and bodyDamage:getOverallBodyHealth() or 100 -- Default to 100 if null
+    local playerData = {
+        id = player:getOnlineID(),
+        x = player:getX(),
+        y = player:getY(),
+        z = player:getZ(),
+        health = health,
+        animation = player:getAnimationDebug()
+    }
+    sendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_PLAYERS_IMMEDIATE, {playerData})
+    if CustomSync.DEBUG then
+        print("[CustomSync] Sync on player get damage for " .. playerData.id .. " damage: " .. tostring(damageAmount))
+    end
+end
+
+Events.OnPlayerGetDamage.Add(onPlayerGetDamage)
+
+local function onWeaponSwing(character, weapon)
+    if not character or not weapon then return end
+    -- Sync nearby zombies when swinging weapon
+    local cell = getCell()
+    if cell then
+        local zombieList = cell:getZombieList()
+        if zombieList then
+            for i = 0, zombieList:size() - 1 do
+                local zombie = zombieList:get(i)
+                if zombie then
+                    local zx, zy = zombie:getX(), zombie:getY()
+                    local cx, cy = character:getX(), character:getY()
+                    if type(zx) == "number" and type(zy) == "number" and type(cx) == "number" and type(cy) == "number" and CustomSync.getDistanceSq(zx, zy, cx, cy) < 16 then -- Within 4 squares
+                        local zombieData = {
+                            id = zombie:getOnlineID(),
+                            x = zx,
+                            y = zy,
+                            z = zombie:getZ(),
+                            health = zombie:getHealth(),
+                            direction = zombie:getDirectionAngle()
+                        }
+                        sendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE, {zombieData})
+                        if CustomSync.DEBUG then
+                            print("[CustomSync] Sync on weapon swing for zombie " .. zombieData.id)
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+Events.OnWeaponSwing.Add(onWeaponSwing)
+
+local function onPlayerAttackFinished(player, weapon, damage, square)
+    if not player or not weapon or not square then return end
+    -- Sync zombies in the attacked square or nearby
+    local sx, sy = square:getX(), square:getY()
+    if type(sx) ~= "number" or type(sy) ~= "number" then return end
+    local cell = getCell()
+    if cell then
+        local zombieList = cell:getZombieList()
+        if zombieList then
+            for i = 0, zombieList:size() - 1 do
+                local zombie = zombieList:get(i)
+                if zombie then
+                    local zx, zy = zombie:getX(), zombie:getY()
+                    if type(zx) == "number" and type(zy) == "number" and CustomSync.getDistanceSq(zx, zy, sx, sy) < 4 then -- Within 2 squares
+                        local zombieData = {
+                            id = zombie:getOnlineID(),
+                            x = zx,
+                            y = zy,
+                            z = zombie:getZ(),
+                            health = zombie:getHealth(),
+                            direction = zombie:getDirectionAngle()
+                        }
+                        sendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE, {zombieData})
+                        if CustomSync.DEBUG then
+                            print("[CustomSync] Sync on player attack finished for zombie " .. zombieData.id)
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+Events.OnPlayerAttackFinished.Add(onPlayerAttackFinished)

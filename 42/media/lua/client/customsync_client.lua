@@ -17,6 +17,10 @@ local function onServerCommand(module, command, args)
         CustomSync.applyVehicleSync(args)
     elseif command == CustomSync.COMMAND_SYNC_INVENTORIES then
         CustomSync.applyInventorySync(args)
+    elseif command == CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE then
+        CustomSync.applyZombieSyncImmediate(args)
+    elseif command == CustomSync.COMMAND_SYNC_PLAYERS_IMMEDIATE then
+        CustomSync.applyPlayerSyncImmediate(args)
     end
 end
 
@@ -79,6 +83,57 @@ function CustomSync.applyZombieSync(zombieData)
                 end
                 -- Store target for interpolation
                 CustomSync.zombieTargets[data.id] = data
+            end
+        end
+    end
+end
+
+function CustomSync.applyZombieSyncImmediate(zombieData)
+    if not zombieData or type(zombieData) ~= "table" then return end
+    local cell = getCell()
+    if not cell then return end
+    local zombieList = cell:getZombieList()
+    if not zombieList then return end
+
+    for _, data in ipairs(zombieData) do
+        for i = 0, zombieList:size() - 1 do
+            local zombie = zombieList:get(i)
+            if zombie and zombie:getOnlineID() == data.id then
+                zombie:setX(data.x)
+                zombie:setY(data.y)
+                zombie:setZ(data.z)
+                zombie:setHealth(data.health)
+                zombie:setDirectionAngle(data.direction)
+                if CustomSync.DEBUG then
+                    print("[CustomSync] Immediate sync applied to zombie " .. data.id)
+                end
+                break
+            end
+        end
+    end
+end
+
+function CustomSync.applyPlayerSyncImmediate(playerData)
+    if not playerData or type(playerData) ~= "table" then return end
+
+    local localPlayer = getPlayer()
+    if not localPlayer then return end
+
+    if CustomSync.DEBUG then
+        print("[CustomSync] Applying immediate sync for " .. #playerData .. " players")
+    end
+
+    for _, data in ipairs(playerData) do
+        local player = getPlayerByOnlineID(data.id)
+        if player and player ~= localPlayer then
+            local px, py = localPlayer:getX(), localPlayer:getY()
+            if CustomSync.isWithinSyncDistance(px, py, data.x, data.y) then
+                player:setX(data.x)
+                player:setY(data.y)
+                player:setZ(data.z)
+                if CustomSync.DEBUG then
+                    print("[CustomSync] Immediate sync applied to player " .. data.id)
+                end
             end
         end
     end
