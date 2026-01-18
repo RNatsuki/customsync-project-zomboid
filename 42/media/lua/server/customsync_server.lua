@@ -85,6 +85,7 @@ function CustomSync.syncPlayers()
                 x = player:getX(),
                 y = player:getY(),
                 z = player:getZ(),
+                direction = player:getDirectionAngle(),
                 health = player:getBodyDamage():getOverallBodyHealth(),
                 animation = player:getAnimationDebug()
             })

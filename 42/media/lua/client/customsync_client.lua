@@ -36,11 +36,15 @@ function CustomSync.applyPlayerSync(playerData)
         print("[CustomSync] Applying sync for " .. #playerData .. " players")
     end
 
+    local px, py = localPlayer:getX(), localPlayer:getY()
+
     for _, data in ipairs(playerData) do
         local player = getPlayerByOnlineID(data.id)
         if player and player ~= localPlayer then -- Don't sync self
-            -- Store target for interpolation (no distance check for map visibility)
-            CustomSync.playerTargets[data.id] = data
+            -- Store target for interpolation (within sync distance to avoid teleportation)
+            if CustomSync.isWithinSyncDistance(px, py, data.x, data.y) then
+                CustomSync.playerTargets[data.id] = data
+            end
         end
     end
 end
@@ -277,7 +281,7 @@ function CustomSync.interpolatePlayers()
             local dz = data.z - cz
             local dist = math.sqrt(dx*dx + dy*dy + dz*dz)
             if dist > 0.01 then
-                local speed = SandboxVars.CustomSync.InterpolationSpeed or 0.2 -- adjust for smoothness
+                local speed = SandboxVars.CustomSync.InterpolationSpeed or 0.5 -- adjust for smoothness
                 local moveDist = speed
                 if moveDist > dist then moveDist = dist end
                 local nx = cx + (dx / dist) * moveDist
@@ -286,10 +290,29 @@ function CustomSync.interpolatePlayers()
                 player:setX(nx)
                 player:setY(ny)
                 player:setZ(nz)
+                -- Interpolate direction
+                if data.direction then
+                    local currentAngle = player:getDirectionAngle()
+                    local targetAngle = data.direction
+                    local deltaAngle = targetAngle - currentAngle
+                    -- Normalize deltaAngle to [-180, 180]
+                    while deltaAngle > 180 do deltaAngle = deltaAngle - 360 end
+                    while deltaAngle < -180 do deltaAngle = deltaAngle + 360 end
+                    local angleDist = math.abs(deltaAngle)
+                    if angleDist > 0.01 then
+                        local angleMove = speed * 2 -- faster rotation
+                        if angleMove > angleDist then angleMove = angleDist end
+                        local newAngle = currentAngle + (deltaAngle / angleDist) * angleMove
+                        player:setDirectionAngle(newAngle)
+                    end
+                end
             else
                 player:setX(data.x)
                 player:setY(data.y)
                 player:setZ(data.z)
+                if data.direction then
+                    player:setDirectionAngle(data.direction)
+                end
                 if CustomSync.DEBUG then
                     print("[CustomSync] Final sync player " .. data.id .. " set to (" .. data.x .. "," .. data.y .. ")")
                 end
