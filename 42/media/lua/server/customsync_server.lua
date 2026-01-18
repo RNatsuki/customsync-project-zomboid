@@ -80,20 +80,45 @@ function CustomSync.syncPlayers()
     for i = 0, players:size() - 1 do
         local player = players:get(i)
         if player then
+            local id = player:getOnlineID()
+            local x = player:getX()
+            local y = player:getY()
+            local z = player:getZ()
+            if type(x) ~= "number" then x = 0 end
+            if type(y) ~= "number" then y = 0 end
+            if type(z) ~= "number" then z = 0 end
+            local lastPos = CustomSync.lastPlayerPositions[id]
+            if lastPos then
+                lastPos.x = tonumber(lastPos.x) or 0
+                lastPos.y = tonumber(lastPos.y) or 0
+                lastPos.z = tonumber(lastPos.z) or 0
+            end
+            local speed = 0
+            if lastPos then
+                local success, dist = pcall(function() return math.sqrt((x - lastPos.x)^2 + (y - lastPos.y)^2 + (z - lastPos.z)^2) end)
+                if success then
+                    speed = dist / CustomSync.UPDATE_INTERVAL  -- units per tick
+                end
+            end
+            CustomSync.lastPlayerPositions[id] = {x = x, y = y, z = z}
             table.insert(playerData, {
-                id = player:getOnlineID(),
-                x = player:getX(),
-                y = player:getY(),
-                z = player:getZ(),
+                id = id,
+                x = x,
+                y = y,
+                z = z,
                 direction = player:getDirectionAngle(),
+                speed = speed,
                 health = player:getBodyDamage():getOverallBodyHealth(),
                 animation = player:getAnimationDebug()
             })
+            if CustomSync.DEBUG then
+                print("[CustomSync] Server: Player " .. id .. " calculated speed: " .. speed)
+            end
         end
     end
 
     if CustomSync.DEBUG then
-        print("[CustomSync] Syncing " .. #playerData .. " players")
+        print("[CustomSync] Server: Syncing " .. #playerData .. " players")
     end
 
     -- Send to all clients

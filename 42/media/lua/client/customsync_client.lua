@@ -44,6 +44,9 @@ function CustomSync.applyPlayerSync(playerData)
             -- Store target for interpolation (within sync distance to avoid teleportation)
             if CustomSync.isWithinSyncDistance(px, py, data.x, data.y) then
                 CustomSync.playerTargets[data.id] = data
+                if CustomSync.DEBUG then
+                    print("[CustomSync] Client: Storing interpolation target for player " .. data.id .. " at (" .. data.x .. "," .. data.y .. ") speed: " .. (data.speed or "nil"))
+                end
             end
         end
     end
@@ -270,6 +273,11 @@ local function onContainerUpdate(container)
 end
 
 function CustomSync.interpolatePlayers()
+    if CustomSync.DEBUG then
+        local count = 0
+        for _ in pairs(CustomSync.playerTargets) do count = count + 1 end
+        print("[CustomSync] Client: Interpolating " .. count .. " players")
+    end
     local idsToRemove = {}  -- Marcar IDs a remover para evitar modificar durante iteración
 
     for id, data in pairs(CustomSync.playerTargets) do
@@ -281,7 +289,11 @@ function CustomSync.interpolatePlayers()
             local dz = data.z - cz
             local dist = math.sqrt(dx*dx + dy*dy + dz*dz)
             if dist > 0.01 then
-                local speed = SandboxVars.CustomSync.InterpolationSpeed or 0.5 -- adjust for smoothness
+                local baseSpeed = SandboxVars.CustomSync.InterpolationSpeed or 0.5
+                local speed = data.speed and math.min(data.speed * 20, baseSpeed * 2) or baseSpeed -- adjust multiplier for smoothness
+                if CustomSync.DEBUG then
+                    print("[CustomSync] Client: Using interpolation speed " .. speed .. " for player " .. data.id .. " (base: " .. baseSpeed .. ", calculated speed: " .. (data.speed or "nil") .. ")")
+                end
                 local moveDist = speed
                 if moveDist > dist then moveDist = dist end
                 local nx = cx + (dx / dist) * moveDist
@@ -312,6 +324,12 @@ function CustomSync.interpolatePlayers()
                 player:setZ(data.z)
                 if data.direction then
                     player:setDirectionAngle(data.direction)
+                end
+                if data.health then
+                    player:getBodyDamage():setOverallBodyHealth(data.health)
+                    if CustomSync.DEBUG then
+                        print("[CustomSync] Client: Updated health for player " .. data.id .. " to " .. data.health)
+                    end
                 end
                 if CustomSync.DEBUG then
                     print("[CustomSync] Final sync player " .. data.id .. " set to (" .. data.x .. "," .. data.y .. ")")
