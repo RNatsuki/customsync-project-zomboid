@@ -1,8 +1,11 @@
 ## Changelog
 
-### v1.3.2 - January 18, 2026
-- **Dynamic Speed Calculation**: Replaced static moveSpeed with calculated speed based on actual position changes per sync interval, allowing interpolation to adapt to real player movement velocity for smoother syncing.
-- **Error Handling**: Added type checks and pcall for position calculations to prevent crashes with invalid or corrupted data.
+### v1.3.3 - January 18, 2026
+- **Improved Sync Frequency**: Reduced update interval from 60 to 30 ticks for more frequent synchronization.
+- **Enhanced Interpolation Speed**: Increased default interpolation speed from 0.5 to 1.0 for smoother and more responsive movements.
+- **Increased Sync Distance**: Raised default sync distance from 50 to 100 squares for better coverage.
+- **Performance Optimization**: Disabled debug logging by default to reduce potential lag.
+- **Sandbox Options Update**: Updated default values in sandbox-options.txt to match code improvements (UpdateInterval: 30, InterpolationSpeed: 1.0, SyncDistance: 100, MaxZombies: 100). Min UpdateInterval set to 15 ticks for advanced users seeking maximum sync frequency.
 
 ### v1.3.1 - January 18, 2026
 - **Improved Player Synchronization**: Added distance check to only interpolate player positions within 50 squares, preventing sudden teleportation from distant locations.

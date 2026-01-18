@@ -2,12 +2,12 @@ CustomSync = {}
 
 CustomSync.MOD_ID = "CustomSync"
 -- Intervalo reducido para sync más frecuente, con throttling para evitar lag
-CustomSync.UPDATE_INTERVAL = 60 -- ticks between updates (reduced for better sync)
-CustomSync.SYNC_DISTANCE = 50 -- squares to sync (default)
+CustomSync.UPDATE_INTERVAL = 30 -- ticks between updates (reduced for better sync)
+CustomSync.SYNC_DISTANCE = 100 -- squares to sync (increased for better coverage)
 CustomSync.SYNC_DISTANCE_PLAYERS = 200 -- squares to sync players for map visibility
 CustomSync.SYNC_DISTANCE_ZOMBIES = 100 -- squares to sync zombies for consistency
 CustomSync.MIN_MOVE_DISTANCE = 1.0 -- Minimum distance to trigger sync (throttling)
-CustomSync.DEBUG = true -- Set to false to disable debug logging
+CustomSync.DEBUG = false -- Set to false to disable debug logging
 
 -- Commands
 CustomSync.COMMAND_SYNC_PLAYERS = "syncPlayers"

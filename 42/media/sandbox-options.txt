@@ -3,9 +3,9 @@ VERSION = 1,
 option CustomSync.UpdateInterval
 {
     type = integer,
-    default = 600,
-    min = 60,
-    max = 2400,
+    default = 30,
+    min = 15,
+    max = 600,
     page = CustomSync,
     translation = CustomSync_UpdateInterval,
 }
@@ -13,9 +13,9 @@ option CustomSync.UpdateInterval
 option CustomSync.SyncDistance
 {
     type = integer,
-    default = 50,
+    default = 100,
     min = 10,
-    max = 200,
+    max = 500,
     page = CustomSync,
     translation = CustomSync_SyncDistance,
 }
@@ -23,9 +23,9 @@ option CustomSync.SyncDistance
 option CustomSync.MaxZombies
 {
     type = integer,
-    default = 50,
+    default = 100,
     min = 1,
-    max = 200,
+    max = 500,
     page = CustomSync,
     translation = CustomSync_MaxZombies,
 }
@@ -33,9 +33,9 @@ option CustomSync.MaxZombies
 option CustomSync.InterpolationSpeed
 {
     type = double,
-    default = 0.2,
+    default = 1.0,
     min = 0.01,
-    max = 1.0,
+    max = 2.0,
     page = CustomSync,
     translation = CustomSync_InterpolationSpeed,
 }

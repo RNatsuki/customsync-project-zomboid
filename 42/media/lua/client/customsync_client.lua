@@ -45,7 +45,7 @@ function CustomSync.applyPlayerSync(playerData)
             if CustomSync.isWithinSyncDistance(px, py, data.x, data.y) then
                 CustomSync.playerTargets[data.id] = data
                 if CustomSync.DEBUG then
-                    print("[CustomSync] Client: Storing interpolation target for player " .. data.id .. " at (" .. data.x .. "," .. data.y .. ") speed: " .. (data.speed or "nil"))
+                    print("[CustomSync] Client: Storing interpolation target for player " .. data.id .. " at (" .. data.x .. "," .. data.y .. ") speed: " .. (data.speed or "nil") .. " animation: " .. (data.animation or "nil"))
                 end
             end
         end
@@ -288,8 +288,15 @@ function CustomSync.interpolatePlayers()
             local dy = data.y - cy
             local dz = data.z - cz
             local dist = math.sqrt(dx*dx + dy*dy + dz*dz)
-            if dist > 0.01 then
-                local baseSpeed = SandboxVars.CustomSync.InterpolationSpeed or 0.5
+            local shouldInterpolate = true
+            if data.animation then
+                local anim = tostring(data.animation):lower()
+                if string.find(anim, "sit") or string.find(anim, "rest") or string.find(anim, "idle") then
+                    shouldInterpolate = false
+                end
+            end
+            if dist > 0.01 and shouldInterpolate and (dist > 0.5 or (data.speed or 0) >= 0.05) then
+                local baseSpeed = SandboxVars.CustomSync.InterpolationSpeed or 1.0
                 local speed = data.speed and math.min(data.speed * 20, baseSpeed * 2) or baseSpeed -- adjust multiplier for smoothness
                 if CustomSync.DEBUG then
                     print("[CustomSync] Client: Using interpolation speed " .. speed .. " for player " .. data.id .. " (base: " .. baseSpeed .. ", calculated speed: " .. (data.speed or "nil") .. ")")
