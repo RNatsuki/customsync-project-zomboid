@@ -156,14 +156,19 @@ function CustomSync.applyPlayerSyncImmediate(playerData)
         print("[CustomSync] Applying immediate sync for " .. #playerData .. " players")
     end
 
+    local px, py = localPlayer:getX(), localPlayer:getY()
+
     for _, data in ipairs(playerData) do
         local player = getPlayerByOnlineID(data.id)
         if player and player ~= localPlayer then
-            player:setX(data.x)
-            player:setY(data.y)
-            player:setZ(data.z)
-            if CustomSync.DEBUG then
-                print("[CustomSync] Immediate sync applied to player " .. data.id)
+            -- Only sync positions within sync distance to avoid ConcurrentModificationException
+            if CustomSync.isWithinSyncDistance(px, py, data.x, data.y) then
+                player:setX(data.x)
+                player:setY(data.y)
+                player:setZ(data.z)
+                if CustomSync.DEBUG then
+                    print("[CustomSync] Immediate sync applied to player " .. data.id)
+                end
             end
         end
     end

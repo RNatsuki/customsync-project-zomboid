@@ -1,5 +1,8 @@
 ## Changelog
 
+### v1.3.4 - January 18, 2026
+- **Bug Fix**: Added distance check in applyPlayerSyncImmediate to prevent ConcurrentModificationException when setting positions of distant players during GameClient.update iteration.
+
 ### v1.3.3 - January 18, 2026
 - **Improved Sync Frequency**: Reduced update interval from 60 to 30 ticks for more frequent synchronization.
 - **Enhanced Interpolation Speed**: Increased default interpolation speed from 0.5 to 1.0 for smoother and more responsive movements.
