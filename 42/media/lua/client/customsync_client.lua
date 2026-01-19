@@ -1,6 +1,6 @@
 require "CustomSync"
 
-print("[CustomSync] Client script loaded")
+if CustomSync.DEBUG then print("[CustomSync] Client script loaded") end
 
 CustomSync.playerTargets = {}
 

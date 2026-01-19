@@ -1,6 +1,6 @@
 require "CustomSync"
 
-print("[CustomSync] Server script loaded")
+if CustomSync.DEBUG then print("[CustomSync] Server script loaded") end
 
 local function safeSendServerCommand(modId, command, data)
     if zombie.network.GameServer and zombie.network.GameServer.udpEngine then
@@ -278,13 +278,16 @@ function CustomSync.syncInventories()
                     id = player:getOnlineID(),
                     items = items
                 })
-                print("[CustomSync] Serialized inventory for player " .. player:getOnlineID() .. " with " .. #items .. " items")
+                if CustomSync.DEBUG then
+                    print("[CustomSync] Serialized inventory for player " .. player:getOnlineID() .. " with " .. #items .. " items")
+                end
             end
         end
     end
 
-    print("[CustomSync] Syncing inventories for " .. #inventoryData .. " players")
-
+    if CustomSync.DEBUG then
+        print("[CustomSync] Syncing inventories for " .. #inventoryData .. " players")
+    end
     safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_INVENTORIES, inventoryData)
 end
 
