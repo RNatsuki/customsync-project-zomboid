@@ -1,5 +1,8 @@
 ## Changelog
 
+### v1.3.5 - January 19, 2026
+- **Debug Logging Control**: Wrapped all print statements under DEBUG flag to prevent console spam for end users. Debug logging can be enabled by setting CustomSync.DEBUG = true in the shared configuration.
+
 ### v1.3.4 - January 18, 2026
 - **Bug Fix**: Added distance check in applyPlayerSyncImmediate to prevent ConcurrentModificationException when setting positions of distant players during GameClient.update iteration.
 
