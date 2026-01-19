@@ -1,6 +1,9 @@
 ## Changelog
 
 ### v1.3.5 - January 19, 2026
+- **Global Map Visibility**: Removed distance restrictions for storing player targets on clients, ensuring all players appear on world maps and minimaps regardless of distance, while interpolation remains limited to prevent teleports.
+
+### v1.3.4 - January 18, 2026
 - **Debug Logging Control**: Wrapped all print statements under DEBUG flag to prevent console spam for end users. Debug logging can be enabled by setting CustomSync.DEBUG = true in the shared configuration.
 
 ### v1.3.4 - January 18, 2026
