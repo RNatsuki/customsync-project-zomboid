@@ -126,7 +126,7 @@ function CustomSync.syncPlayers()
 end
 
 function CustomSync.syncZombies()
-    print("[CustomSync] Syncing zombies...")
+    if CustomSync.DEBUG then print("[CustomSync] Syncing zombies...") end
     local cell = getCell()
     if not cell then return end
 
