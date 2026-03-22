@@ -1,10 +1,14 @@
 ## Changelog
 
-### v1.3.5 - January 19, 2026
-- **Global Map Visibility**: Removed distance restrictions for storing player targets on clients, ensuring all players appear on world maps and minimaps regardless of distance, while interpolation remains limited to prevent teleports.
-
-### v1.3.4 - January 18, 2026
-- **Debug Logging Control**: Wrapped all print statements under DEBUG flag to prevent console spam for end users. Debug logging can be enabled by setting CustomSync.DEBUG = true in the shared configuration.
+### v1.4.0 - February 17, 2026
+- **Smart Delta Sync (Players/Vehicles/Zombies)**: Added snapshot-based change detection so the server only sends entities when state actually changes.
+- **Zombie Sync Cap Enforcement**: `MaxZombies` is now enforced with nearest-zombie prioritization when too many zombies are active.
+- **Immediate Zombie Sync Cooldown**: Added new sandbox option `ImmediateZombieCooldown` to throttle event burst spam during heavy combat.
+- **Trailer Sync (Towing)**: Added dedicated server/client trailer sync with parent vehicle relationship and client-side interpolation to reduce overlap when towing.
+- **Trailer Tuning**: Added new sandbox option `TrailerInterpolationSpeed` for smoother/faster trailer correction.
+- **Inventory Delta Sync**: Added inventory signatures on server/client to skip redundant full inventory rebuilds when no item changes occurred.
+- **Cache/Mem Cleanup**: Added periodic cleanup for stale player/zombie caches to reduce long-session memory growth.
+- **Bug Fix**: Removed duplicate global-mod-data initialization registration and cleaned multiple noisy/unconditional logs.
 
 ### v1.3.4 - January 18, 2026
 - **Bug Fix**: Added distance check in applyPlayerSyncImmediate to prevent ConcurrentModificationException when setting positions of distant players during GameClient.update iteration.

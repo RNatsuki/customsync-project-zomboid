@@ -3,7 +3,7 @@ VERSION = 1,
 option CustomSync.UpdateInterval
 {
     type = integer,
-    default = 30,
+    default = 120,
     min = 15,
     max = 600,
     page = CustomSync,
@@ -13,7 +13,7 @@ option CustomSync.UpdateInterval
 option CustomSync.SyncDistance
 {
     type = integer,
-    default = 100,
+    default = 50,
     min = 10,
     max = 500,
     page = CustomSync,
@@ -23,7 +23,7 @@ option CustomSync.SyncDistance
 option CustomSync.MaxZombies
 {
     type = integer,
-    default = 100,
+    default = 200,
     min = 1,
     max = 500,
     page = CustomSync,
@@ -38,6 +38,26 @@ option CustomSync.InterpolationSpeed
     max = 2.0,
     page = CustomSync,
     translation = CustomSync_InterpolationSpeed,
+}
+
+option CustomSync.ImmediateZombieCooldown
+{
+    type = integer,
+    default = 5,
+    min = 0,
+    max = 60,
+    page = CustomSync,
+    translation = CustomSync_ImmediateZombieCooldown,
+}
+
+option CustomSync.TrailerInterpolationSpeed
+{
+    type = double,
+    default = 0.75,
+    min = 0.05,
+    max = 2.0,
+    page = CustomSync,
+    translation = CustomSync_TrailerInterpolationSpeed,
 }
 
 option CustomSync.DebugLogs

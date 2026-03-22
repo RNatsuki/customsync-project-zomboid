@@ -1,6 +1,6 @@
 require "CustomSync"
 
-if CustomSync.DEBUG then print("[CustomSync] Server script loaded") end
+print("[CustomSync] Server script loaded")
 
 local function safeSendServerCommand(modId, command, data)
     if zombie.network.GameServer and zombie.network.GameServer.udpEngine then
@@ -15,32 +15,175 @@ local lastUpdateInterval = CustomSync.UPDATE_INTERVAL
 local lastSyncDistance = CustomSync.SYNC_DISTANCE
 local lastMaxZombies = 100
 local lastDebug = 0
+local lastImmediateZombieCooldown = CustomSync.ZOMBIE_IMMEDIATE_COOLDOWN
 
-local lastImmediateZombieSync = {}
-local lastImmediatePlayerSync = {}
-
-local function shouldThrottleImmediate(cache, id)
-    if not id then return false end
-    local last = cache[id]
-    if last and tickCounter - last < CustomSync.IMMEDIATE_COOLDOWN_TICKS then
+local function isStateDeltaExceeded(current, previous, epsilon)
+    if not previous then return true end
+    local dx = (current.x or 0) - (previous.x or 0)
+    local dy = (current.y or 0) - (previous.y or 0)
+    local dz = (current.z or 0) - (previous.z or 0)
+    if (dx * dx + dy * dy + dz * dz) > (epsilon * epsilon) then
         return true
     end
-    cache[id] = tickCounter
+    if math.abs((current.direction or 0) - (previous.direction or 0)) > 1.0 then
+        return true
+    end
+    if math.abs((current.health or 0) - (previous.health or 0)) > 0.1 then
+        return true
+    end
+    if current.crawling ~= previous.crawling then
+        return true
+    end
+    if current.animation ~= previous.animation then
+        return true
+    end
     return false
+end
+
+local function minDistanceSqToPlayers(x, y, playerPositions)
+    local minDist = nil
+    for _, pos in ipairs(playerPositions) do
+        local dist = CustomSync.getDistanceSq(pos.x, pos.y, x, y)
+        if not minDist or dist < minDist then
+            minDist = dist
+        end
+    end
+    return minDist or math.huge
+end
+
+local function getVehicleTowingSafe(vehicle)
+    if not vehicle or type(vehicle.getVehicleTowing) ~= "function" then
+        return nil
+    end
+    local ok, towed = pcall(function()
+        return vehicle:getVehicleTowing()
+    end)
+    if ok and towed then
+        return towed
+    end
+    return nil
+end
+
+local function getVehicleDirectionAngleSafe(vehicle)
+    if not vehicle then return 0 end
+    if type(vehicle.getDirectionAngle) == "function" then
+        local ok, angle = pcall(function()
+            return vehicle:getDirectionAngle()
+        end)
+        if ok and type(angle) == "number" then
+            return angle
+        end
+    end
+    return 0
+end
+
+local function getVehicleSpeedKmHourSafe(vehicle)
+    if not vehicle then return 0 end
+    if type(vehicle.getCurrentSpeedKmHour) == "function" then
+        local ok, speed = pcall(function()
+            return vehicle:getCurrentSpeedKmHour()
+        end)
+        if ok and type(speed) == "number" then
+            return speed
+        end
+    end
+    return 0
+end
+
+local function shouldSendImmediateZombieSync(id, force)
+    if force then return true end
+    local cooldown = CustomSync.ZOMBIE_IMMEDIATE_COOLDOWN or 0
+    if cooldown <= 0 then return true end
+    local lastTick = CustomSync.lastImmediateZombieSyncTick[id] or -100000
+    if (tickCounter - lastTick) < cooldown then
+        return false
+    end
+    return true
+end
+
+local function sendImmediateZombieSync(zombie, force)
+    if not zombie then return false end
+    local id = zombie:getOnlineID()
+    if not shouldSendImmediateZombieSync(id, force) then
+        return false
+    end
+    local zombieData = {
+        id = id,
+        x = zombie:getX(),
+        y = zombie:getY(),
+        z = zombie:getZ(),
+        health = zombie:getHealth(),
+        direction = zombie:getDirectionAngle(),
+        crawling = zombie:isCrawling()
+    }
+    safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE, {zombieData})
+    CustomSync.lastImmediateZombieSyncTick[id] = tickCounter
+    return true
+end
+
+local function cleanupStaleCaches()
+    local players = getOnlinePlayers()
+    local activePlayers = {}
+    for i = 0, players:size() - 1 do
+        local player = players:get(i)
+        if player then
+            activePlayers[player:getOnlineID()] = true
+        end
+    end
+
+    for id, _ in pairs(CustomSync.lastPlayerPositions) do
+        if not activePlayers[id] then
+            CustomSync.lastPlayerPositions[id] = nil
+            CustomSync.lastBroadcastPlayers[id] = nil
+            CustomSync.lastInventorySignatures[id] = nil
+        end
+    end
+
+    for id, _ in pairs(CustomSync.lastZombieHealth or {}) do
+        if not CustomSync.activeZombies[id] then
+            CustomSync.lastZombieHealth[id] = nil
+            CustomSync.lastZombieCrawling[id] = nil
+            CustomSync.lastZombiePositions[id] = nil
+            CustomSync.lastImmediateZombieSyncTick[id] = nil
+        end
+    end
+
+    local cell = getCell()
+    if cell then
+        local vehicleList = cell:getVehicles()
+        local liveVehicles = {}
+        if vehicleList then
+            for i = 0, vehicleList:size() - 1 do
+                local vehicle = vehicleList:get(i)
+                if vehicle then
+                    liveVehicles[vehicle:getID()] = true
+                end
+            end
+        end
+        for id, _ in pairs(CustomSync.lastTrailerPositions or {}) do
+            if not liveVehicles[id] then
+                CustomSync.lastTrailerPositions[id] = nil
+            end
+        end
+    end
 end
 
 local function onInitGlobalModData()
     CustomSync.UPDATE_INTERVAL = SandboxVars.CustomSync.UpdateInterval or CustomSync.UPDATE_INTERVAL
     CustomSync.SYNC_DISTANCE = SandboxVars.CustomSync.SyncDistance or CustomSync.SYNC_DISTANCE
+    CustomSync.SYNC_DISTANCE_ZOMBIES = CustomSync.SYNC_DISTANCE
     CustomSync.MAX_ZOMBIES = SandboxVars.CustomSync.MaxZombies or 100
+    CustomSync.ZOMBIE_IMMEDIATE_COOLDOWN = SandboxVars.CustomSync.ImmediateZombieCooldown or CustomSync.ZOMBIE_IMMEDIATE_COOLDOWN
     -- CustomSync.DEBUG = debugVal == 1  -- Commented out to keep default true
     CustomSync.lastZombiePositions = {}
     CustomSync.lastPlayerPositions = {}
+    CustomSync.lastBroadcastPlayers = {}
+    CustomSync.lastBroadcastVehicles = {}
+    CustomSync.lastTrailerPositions = {}
+    CustomSync.lastInventorySignatures = {}
     CustomSync.lastZombieHealth = {}
     CustomSync.lastZombieCrawling = {}
-    CustomSync.activeZombies = {}
-    lastImmediateZombieSync = {}
-    lastImmediatePlayerSync = {}
+    CustomSync.lastImmediateZombieSyncTick = {}
 end
 
 local function onTick()
@@ -56,6 +199,7 @@ local function onTick()
     end
     if SandboxVars.CustomSync.SyncDistance and SandboxVars.CustomSync.SyncDistance ~= lastSyncDistance then
         CustomSync.SYNC_DISTANCE = SandboxVars.CustomSync.SyncDistance
+        CustomSync.SYNC_DISTANCE_ZOMBIES = CustomSync.SYNC_DISTANCE
         lastSyncDistance = CustomSync.SYNC_DISTANCE
         if CustomSync.DEBUG then
             print("[CustomSync] Updated SYNC_DISTANCE to " .. CustomSync.SYNC_DISTANCE)
@@ -73,6 +217,17 @@ local function onTick()
         CustomSync.DEBUG = lastDebug == 1
         print("[CustomSync] Debug logging " .. (CustomSync.DEBUG and "enabled" or "disabled"))
     end
+    if SandboxVars.CustomSync.ImmediateZombieCooldown and SandboxVars.CustomSync.ImmediateZombieCooldown ~= lastImmediateZombieCooldown then
+        CustomSync.ZOMBIE_IMMEDIATE_COOLDOWN = SandboxVars.CustomSync.ImmediateZombieCooldown
+        lastImmediateZombieCooldown = CustomSync.ZOMBIE_IMMEDIATE_COOLDOWN
+        if CustomSync.DEBUG then
+            print("[CustomSync] Updated ZOMBIE_IMMEDIATE_COOLDOWN to " .. CustomSync.ZOMBIE_IMMEDIATE_COOLDOWN)
+        end
+    end
+
+    if tickCounter % 600 == 0 then
+        cleanupStaleCaches()
+    end
 
     if tickCounter % CustomSync.UPDATE_INTERVAL ~= 0 then return end
 
@@ -85,10 +240,12 @@ local function onTick()
     -- Sync vehicles
     CustomSync.syncVehicles()
 
+    -- Sync trailers (towed vehicles) with parent relationship data
+    CustomSync.syncTrailers()
+
     -- Inventories and appearance synced on update via OnContainerUpdate
 end
 
-Events.OnInitGlobalModData.Add(onInitGlobalModData)
 function CustomSync.syncPlayers()
     local players = getOnlinePlayers()
     local playerData = {}
@@ -117,7 +274,7 @@ function CustomSync.syncPlayers()
                 end
             end
             CustomSync.lastPlayerPositions[id] = {x = x, y = y, z = z}
-            table.insert(playerData, {
+            local state = {
                 id = id,
                 x = x,
                 y = y,
@@ -126,7 +283,11 @@ function CustomSync.syncPlayers()
                 speed = speed,
                 health = player:getBodyDamage():getOverallBodyHealth(),
                 animation = player:getAnimationDebug()
-            })
+            }
+            if isStateDeltaExceeded(state, CustomSync.lastBroadcastPlayers[id], CustomSync.PLAYER_DELTA_EPSILON or 0.02) then
+                table.insert(playerData, state)
+                CustomSync.lastBroadcastPlayers[id] = state
+            end
             if CustomSync.DEBUG then
                 print("[CustomSync] Server: Player " .. id .. " calculated speed: " .. speed)
             end
@@ -138,15 +299,22 @@ function CustomSync.syncPlayers()
     end
 
     -- Send to all clients
-    safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_PLAYERS, playerData)
+    if #playerData > 0 then
+        safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_PLAYERS, playerData)
+    end
 end
 
 function CustomSync.syncZombies()
-    if CustomSync.DEBUG then print("[CustomSync] Syncing zombies...") end
+    if CustomSync.DEBUG then
+        print("[CustomSync] Syncing zombies...")
+    end
     local cell = getCell()
     if not cell then return end
 
     local players = getOnlinePlayers()
+    local zombieList = cell:getZombieList()
+    if not zombieList then return end
+
     local playerPositions = {}
     for j = 0, players:size() - 1 do
         local player = players:get(j)
@@ -154,39 +322,29 @@ function CustomSync.syncZombies()
             table.insert(playerPositions, {x = player:getX(), y = player:getY()})
         end
     end
-    if #playerPositions == 0 then return end
 
-    local zombieList = cell:getZombieList()
-    if not zombieList then return end
-
-    local zombieSyncDistanceSq = CustomSync.SYNC_DISTANCE_ZOMBIES * CustomSync.SYNC_DISTANCE_ZOMBIES
-
-    local function nearestDistanceSq(x, y)
-        local minDist = math.huge
-        for _, pos in ipairs(playerPositions) do
-            local distSq = CustomSync.getDistanceSq(pos.x, pos.y, x, y)
-            if distSq < minDist then
-                minDist = distSq
-            end
+    local zombieMap = {}
+    for i = 0, zombieList:size() - 1 do
+        local z = zombieList:get(i)
+        if z then
+            zombieMap[z:getOnlineID()] = z
         end
-        return minDist
     end
 
     -- Update existing active zombies
     for id, data in pairs(CustomSync.activeZombies) do
         local exists = false
-        local zombie = nil
-        for i = 0, zombieList:size() - 1 do
-            local z = zombieList:get(i)
-            if z and z:getOnlineID() == id then
-                zombie = z
-                break
-            end
-        end
+        local zombie = zombieMap[id]
         if zombie and zombie:getHealth() > 0 then
             local zx, zy = zombie:getX(), zombie:getY()
-            local nearestSq = nearestDistanceSq(zx, zy)
-            if nearestSq <= zombieSyncDistanceSq then
+            local near = false
+            for _, pos in ipairs(playerPositions) do
+                if CustomSync.isWithinSyncDistanceZombies(pos.x, pos.y, zx, zy) then
+                    near = true
+                    break
+                end
+            end
+            if near then
                 exists = true
                 data.x = zx
                 data.y = zy
@@ -194,8 +352,6 @@ function CustomSync.syncZombies()
                 data.health = zombie:getHealth()
                 data.direction = zombie:getDirectionAngle()
                 data.crawling = zombie:isCrawling()
-                data.lastSeenTick = tickCounter
-                data.nearestDistanceSq = nearestSq
             end
         end
         if not exists then
@@ -204,71 +360,75 @@ function CustomSync.syncZombies()
     end
 
     -- Add new nearby zombies
-    for i = 0, zombieList:size() - 1 do
-        local zombie = zombieList:get(i)
-        if zombie and zombie:getHealth() > 0 then
-            local id = zombie:getOnlineID()
-            if not CustomSync.activeZombies[id] then
-                local zx, zy = zombie:getX(), zombie:getY()
-                local nearestSq = nearestDistanceSq(zx, zy)
-                if nearestSq <= zombieSyncDistanceSq then
-                    CustomSync.activeZombies[id] = {
-                        id = id,
-                        x = zx,
-                        y = zy,
-                        z = zombie:getZ(),
-                        health = zombie:getHealth(),
-                        direction = zombie:getDirectionAngle(),
-                        crawling = zombie:isCrawling(),
-                        lastSeenTick = tickCounter,
-                        nearestDistanceSq = nearestSq
-                    }
+    for id, zombie in pairs(zombieMap) do
+        if zombie and zombie:getHealth() > 0 and not CustomSync.activeZombies[id] then
+            local zx, zy = zombie:getX(), zombie:getY()
+            local near = false
+            for _, pos in ipairs(playerPositions) do
+                if CustomSync.isWithinSyncDistanceZombies(pos.x, pos.y, zx, zy) then
+                    near = true
+                    break
                 end
             end
-        end
-    end
-
-    -- Remove stale entries to avoid unbounded growth
-    for id, data in pairs(CustomSync.activeZombies) do
-        if not data.lastSeenTick or (tickCounter - data.lastSeenTick) > CustomSync.ZOMBIE_STALE_TICKS then
-            CustomSync.activeZombies[id] = nil
-        end
-    end
-
-    -- Convert to list for sending and enforce max zombies cap
-    local zombies = {}
-    for _, data in pairs(CustomSync.activeZombies) do
-        table.insert(zombies, data)
-    end
-
-    if #zombies > CustomSync.MAX_ZOMBIES then
-        table.sort(zombies, function(a, b)
-            return (a.nearestDistanceSq or math.huge) < (b.nearestDistanceSq or math.huge)
-        end)
-        for i = CustomSync.MAX_ZOMBIES + 1, #zombies do
-            local drop = zombies[i]
-            if drop and drop.id then
-                CustomSync.activeZombies[drop.id] = nil
+            if near then
+                CustomSync.activeZombies[id] = {
+                    id = id,
+                    x = zx,
+                    y = zy,
+                    z = zombie:getZ(),
+                    health = zombie:getHealth(),
+                    direction = zombie:getDirectionAngle(),
+                    crawling = zombie:isCrawling()
+                }
             end
         end
-        local limited = {}
-        local limit = math.min(CustomSync.MAX_ZOMBIES, #zombies)
-        for i = 1, limit do
-            limited[i] = zombies[i]
+    end
+
+    -- Convert to list for sending
+    local zombies = {}
+    local zombieCandidates = {}
+    for id, data in pairs(CustomSync.activeZombies) do
+        table.insert(zombieCandidates, data)
+    end
+
+    if #zombieCandidates > (CustomSync.MAX_ZOMBIES or 100) then
+        table.sort(zombieCandidates, function(a, b)
+            local da = minDistanceSqToPlayers(a.x, a.y, playerPositions)
+            local db = minDistanceSqToPlayers(b.x, b.y, playerPositions)
+            return da < db
+        end)
+    end
+
+    local limit = math.min(#zombieCandidates, CustomSync.MAX_ZOMBIES or 100)
+    for i = 1, limit do
+        local data = zombieCandidates[i]
+        local lastState = CustomSync.lastZombiePositions[data.id]
+        if isStateDeltaExceeded(data, lastState, 0.05) then
+            local snapshot = {
+                id = data.id,
+                x = data.x,
+                y = data.y,
+                z = data.z,
+                health = data.health,
+                direction = data.direction,
+                crawling = data.crawling
+            }
+            table.insert(zombies, snapshot)
+            CustomSync.lastZombiePositions[data.id] = snapshot
         end
-        zombies = limited
     end
 
     if CustomSync.DEBUG then
-        print("[CustomSync] Syncing " .. #zombies .. " active zombies")
+        print("[CustomSync] Syncing " .. #zombies .. " zombies (active=" .. #zombieCandidates .. ", cap=" .. tostring(CustomSync.MAX_ZOMBIES) .. ")")
     end
 
-    safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES, zombies)
+    if #zombies > 0 then
+        safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES, zombies)
+    end
 end
 
 function CustomSync.syncVehicles()
     local vehicles = {}
-    local vehicleMap = {}
     local cell = getCell()
     if not cell then return end
 
@@ -280,70 +440,111 @@ function CustomSync.syncVehicles()
             table.insert(playerPositions, {x = player:getX(), y = player:getY()})
         end
     end
-    if #playerPositions == 0 then return end
-
-    local function nearestDistanceSq(x, y)
-        local minDist = math.huge
-        for _, pos in ipairs(playerPositions) do
-            local distSq = CustomSync.getDistanceSq(pos.x, pos.y, x, y)
-            if distSq < minDist then
-                minDist = distSq
-            end
-        end
-        return minDist
-    end
-
-    local function addVehicle(vehicle, forceInclude)
-        if not vehicle then return end
-        local id = vehicle:getID()
-        if vehicleMap[id] then return end
-        local vx, vy = vehicle:getX(), vehicle:getY()
-        local distSq = nearestDistanceSq(vx, vy)
-        local maxDistSq = (CustomSync.SYNC_DISTANCE_VEHICLES or CustomSync.SYNC_DISTANCE)^2
-        if not forceInclude and distSq > maxDistSq then return end
-
-        local okAngle, angle = pcall(function() return vehicle:getAngleZ() end)
-        if not okAngle then angle = nil end
-        local towed = vehicle.getTowedVehicle and vehicle:getTowedVehicle() or nil
-        local towedId = towed and towed:getID() or nil
-        local towedBy = nil
-        if vehicle.getTowedBy then
-            local towByVehicle = vehicle:getTowedBy()
-            if towByVehicle and towByVehicle.getID then
-                towedBy = towByVehicle:getID()
-            end
-        end
-
-        vehicleMap[id] = true
-        table.insert(vehicles, {
-            id = id,
-            x = vx,
-            y = vy,
-            z = vehicle:getZ(),
-            speed = vehicle:getCurrentSpeedKmHour(),
-            health = vehicle:getEngineQuality(),
-            angle = angle,
-            towedId = towedId,
-            towedBy = towedBy
-        })
-
-        if towed and not vehicleMap[towedId] then
-            addVehicle(towed, true) -- always include the trailer being towed
-        end
-    end
 
     local vehicleList = cell:getVehicles()
     if vehicleList then
         for i = 0, vehicleList:size() - 1 do
-            addVehicle(vehicleList:get(i), false)
+            local vehicle = vehicleList:get(i)
+            if vehicle then
+                local vx, vy = vehicle:getX(), vehicle:getY()
+                local nearPlayer = false
+                for _, pos in ipairs(playerPositions) do
+                    if CustomSync.isWithinSyncDistance(pos.x, pos.y, vx, vy) then
+                        nearPlayer = true
+                        break
+                    end
+                end
+                if nearPlayer then
+                    local state = {
+                        id = vehicle:getID(),
+                        x = vehicle:getX(),
+                        y = vehicle:getY(),
+                        z = vehicle:getZ(),
+                        speed = getVehicleSpeedKmHourSafe(vehicle),
+                        health = vehicle:getEngineQuality()
+                    }
+                    if isStateDeltaExceeded(state, CustomSync.lastBroadcastVehicles[state.id], CustomSync.VEHICLE_DELTA_EPSILON or 0.05) then
+                        table.insert(vehicles, state)
+                        CustomSync.lastBroadcastVehicles[state.id] = state
+                    end
+                end
+            end
         end
     end
 
     if CustomSync.DEBUG then
-        print("[CustomSync] Syncing " .. #vehicles .. " vehicles (including trailers)")
+        print("[CustomSync] Syncing " .. #vehicles .. " vehicles")
     end
 
-    safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_VEHICLES, vehicles)
+    if #vehicles > 0 then
+        safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_VEHICLES, vehicles)
+    end
+end
+
+function CustomSync.syncTrailers()
+    local trailers = {}
+    local cell = getCell()
+    if not cell then return end
+
+    local players = getOnlinePlayers()
+    local playerPositions = {}
+    for j = 0, players:size() - 1 do
+        local player = players:get(j)
+        if player then
+            table.insert(playerPositions, {x = player:getX(), y = player:getY()})
+        end
+    end
+
+    local vehicleList = cell:getVehicles()
+    if not vehicleList then return end
+
+    for i = 0, vehicleList:size() - 1 do
+        local towingVehicle = vehicleList:get(i)
+        if towingVehicle then
+            local trailer = getVehicleTowingSafe(towingVehicle)
+            if trailer then
+                local tx, ty = trailer:getX(), trailer:getY()
+                local px, py = towingVehicle:getX(), towingVehicle:getY()
+                local nearPlayer = false
+                for _, pos in ipairs(playerPositions) do
+                    if CustomSync.isWithinSyncDistance(pos.x, pos.y, tx, ty) or CustomSync.isWithinSyncDistance(pos.x, pos.y, px, py) then
+                        nearPlayer = true
+                        break
+                    end
+                end
+
+                if nearPlayer then
+                    local dx = tx - px
+                    local dy = ty - py
+                    local hitchDistance = math.sqrt(dx * dx + dy * dy)
+
+                    local state = {
+                        id = trailer:getID(),
+                        parentId = towingVehicle:getID(),
+                        x = tx,
+                        y = ty,
+                        z = trailer:getZ(),
+                        direction = getVehicleDirectionAngleSafe(trailer),
+                        speed = getVehicleSpeedKmHourSafe(towingVehicle),
+                        hitchDistance = hitchDistance
+                    }
+
+                    if isStateDeltaExceeded(state, CustomSync.lastTrailerPositions[state.id], 0.03) then
+                        table.insert(trailers, state)
+                        CustomSync.lastTrailerPositions[state.id] = state
+                    end
+                end
+            end
+        end
+    end
+
+    if CustomSync.DEBUG then
+        print("[CustomSync] Syncing " .. #trailers .. " trailers")
+    end
+
+    if #trailers > 0 then
+        safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_TRAILERS, trailers)
+    end
 end
 
 function CustomSync.syncInventories()
@@ -356,21 +557,30 @@ function CustomSync.syncInventories()
             local inventory = player:getInventory()
             if inventory then
                 local items = CustomSync.serializeInventory(inventory, 0)
-                table.insert(inventoryData, {
-                    id = player:getOnlineID(),
-                    items = items
-                })
-                if CustomSync.DEBUG then
-                    print("[CustomSync] Serialized inventory for player " .. player:getOnlineID() .. " with " .. #items .. " items")
+                local signature = CustomSync.buildInventorySignature(items)
+                local playerId = player:getOnlineID()
+                if CustomSync.lastInventorySignatures[playerId] ~= signature then
+                    CustomSync.lastInventorySignatures[playerId] = signature
+                    table.insert(inventoryData, {
+                        id = playerId,
+                        items = items,
+                        signature = signature
+                    })
+                    if CustomSync.DEBUG then
+                        print("[CustomSync] Serialized inventory delta for player " .. playerId .. " with " .. #items .. " items")
+                    end
                 end
             end
         end
     end
 
-    if CustomSync.DEBUG then
+    if CustomSync.DEBUG and #inventoryData > 0 then
         print("[CustomSync] Syncing inventories for " .. #inventoryData .. " players")
     end
-    safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_INVENTORIES, inventoryData)
+
+    if #inventoryData > 0 then
+        safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_INVENTORIES, inventoryData)
+    end
 end
 
 function CustomSync.serializeInventory(inventory, depth)
@@ -395,26 +605,42 @@ function CustomSync.serializeInventory(inventory, depth)
     return items
 end
 
-function CustomSync.syncPlayerInventory(player)
+function CustomSync.buildInventorySignature(items)
+    if not items then return "" end
+    local parts = {}
+    for _, itemData in ipairs(items) do
+        local part = tostring(itemData.type) .. ":" .. tostring(itemData.count or 1) .. ":" .. tostring(itemData.condition or 100)
+        if itemData.container then
+            part = part .. "{" .. CustomSync.buildInventorySignature(itemData.container) .. "}"
+        end
+        table.insert(parts, part)
+    end
+    return table.concat(parts, "|")
+end
+
+function CustomSync.syncPlayerInventory(player, force)
     if not player then return end
     local inventory = player:getInventory()
     local items = CustomSync.serializeInventory(inventory, 0)
+    local signature = CustomSync.buildInventorySignature(items)
+    local playerId = player:getOnlineID()
+    if not force and CustomSync.lastInventorySignatures[playerId] == signature then
+        return
+    end
+    CustomSync.lastInventorySignatures[playerId] = signature
     local data = {
-        id = player:getOnlineID(),
-        items = items
+        id = playerId,
+        items = items,
+        signature = signature
     }
     if CustomSync.DEBUG then
-        print("[CustomSync] Sending inventory sync for player " .. player:getOnlineID() .. " with " .. #items .. " items")
+        print("[CustomSync] Sending inventory sync for player " .. playerId .. " with " .. #items .. " items")
     end
     local success, err = pcall(safeSendServerCommand, CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_INVENTORIES, {data})
     if not success then
         print("[CustomSync] Error syncing player inventory: " .. tostring(err))
     end
 end
-
-
-
-
 
 Events.OnInitGlobalModData.Add(onInitGlobalModData)
 Events.OnTick.Add(onTick)
@@ -425,7 +651,7 @@ local function onPlayerDeath(player)
             print("[CustomSync] Player " .. player:getOnlineID() .. " died, syncing inventory")
         end
         -- Force sync inventory immediately on death
-        CustomSync.syncPlayerInventory(player)
+        CustomSync.syncPlayerInventory(player, true)
     end
 end
 
@@ -438,8 +664,10 @@ local function onContainerUpdate(container)
     if instanceof(parent, "IsoPlayer") then
         local player = parent
         if container == player:getInventory() then
-            print("[CustomSync] Syncing inventory for player " .. player:getOnlineID())
-            CustomSync.syncPlayerInventory(player)
+            if CustomSync.DEBUG then
+                print("[CustomSync] Inventory changed for player " .. player:getOnlineID())
+            end
+            CustomSync.syncPlayerInventory(player, false)
         end
     end
 end
@@ -450,23 +678,8 @@ Events.OnContainerUpdate.Add(onContainerUpdate)
 
 local function onHitZombie(zombie, character, handWeapon, damage)
     if not zombie or not character then return end
-    -- Immediate sync for hit zombie
-    local zombieData = {
-        id = zombie:getOnlineID(),
-        x = zombie:getX(),
-        y = zombie:getY(),
-        z = zombie:getZ(),
-        health = zombie:getHealth(),
-        direction = zombie:getDirectionAngle(),
-        crawling = zombie:isCrawling()
-    }
-    if not shouldThrottleImmediate(lastImmediateZombieSync, zombieData.id) then
-        safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE, {zombieData})
-        if CustomSync.DEBUG then
-            print("[CustomSync] Immediate sync for hit zombie " .. zombieData.id)
-        end
-    elseif CustomSync.DEBUG then
-        print("[CustomSync] Throttled hit sync for zombie " .. zombieData.id)
+    if sendImmediateZombieSync(zombie, false) and CustomSync.DEBUG then
+        print("[CustomSync] Immediate sync for hit zombie " .. zombie:getOnlineID())
     end
 end
 
@@ -474,7 +687,7 @@ Events.OnHitZombie.Add(onHitZombie)
 
 local function onZombieDead(zombie)
     if not zombie then return end
-    -- Ensure client kills the zombie when it dies on server
+    -- Ensure client kills the zombie when it dies on server (force bypass cooldown)
     local zombieData = {
         id = zombie:getOnlineID(),
         x = zombie:getX(),
@@ -484,13 +697,10 @@ local function onZombieDead(zombie)
         direction = zombie:getDirectionAngle(),
         crawling = zombie:isCrawling()
     }
-    if not shouldThrottleImmediate(lastImmediateZombieSync, zombieData.id) then
-        safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE, {zombieData})
-        if CustomSync.DEBUG then
-            print("[CustomSync] Zombie died, sending death sync for " .. zombieData.id)
-        end
-    elseif CustomSync.DEBUG then
-        print("[CustomSync] Throttled death sync for zombie " .. zombieData.id)
+    safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE, {zombieData})
+    CustomSync.lastImmediateZombieSyncTick[zombieData.id] = tickCounter
+    if CustomSync.DEBUG then
+        print("[CustomSync] Zombie died, sending death sync for " .. zombieData.id)
     end
 end
 
@@ -519,23 +729,9 @@ local function onZombieUpdate(zombie)
             end
         end
         if nearPlayer then
-            -- Health or crawling changed, send immediate sync
-            local zombieData = {
-                id = id,
-                x = zombie:getX(),
-                y = zombie:getY(),
-                z = zombie:getZ(),
-                health = currentHealth,
-                direction = zombie:getDirectionAngle(),
-                crawling = currentCrawling
-            }
-            if not shouldThrottleImmediate(lastImmediateZombieSync, id) then
-                safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE, {zombieData})
-                if CustomSync.DEBUG then
-                    print("[CustomSync] State changed for zombie " .. id .. " health:" .. lastHealth .. "->" .. currentHealth .. " crawling:" .. tostring(lastCrawling) .. "->" .. tostring(currentCrawling))
-                end
-            elseif CustomSync.DEBUG then
-                print("[CustomSync] Throttled state change sync for zombie " .. id)
+            -- Health or crawling changed, send immediate sync (throttled)
+            if sendImmediateZombieSync(zombie, false) and CustomSync.DEBUG then
+                print("[CustomSync] State changed for zombie " .. id .. " health:" .. lastHealth .. "->" .. currentHealth .. " crawling:" .. tostring(lastCrawling) .. "->" .. tostring(currentCrawling))
             end
         end
     end
@@ -561,13 +757,9 @@ local function onPlayerUpdate(player)
             health = player:getBodyDamage():getOverallBodyHealth(),
             animation = player:getAnimationDebug()
         }
-        if not shouldThrottleImmediate(lastImmediatePlayerSync, playerId) then
-            safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_PLAYERS_IMMEDIATE, {playerData})
-            if CustomSync.DEBUG then
-                print("[CustomSync] Immediate sync for player " .. playerId)
-            end
-        elseif CustomSync.DEBUG then
-            print("[CustomSync] Throttled immediate player sync for " .. playerId)
+        safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_PLAYERS_IMMEDIATE, {playerData})
+        if CustomSync.DEBUG then
+            print("[CustomSync] Immediate sync for player " .. playerId)
         end
     end
 end
@@ -576,22 +768,8 @@ Events.OnPlayerUpdate.Add(onPlayerUpdate)
 
 local function onAIStateChange(character, newState, oldState)
     if not character or not instanceof(character, "IsoZombie") then return end
-    -- Sync zombie on state change (e.g., from idle to attacking)
-    local zombieData = {
-        id = character:getOnlineID(),
-        x = character:getX(),
-        y = character:getY(),
-        z = character:getZ(),
-        health = character:getHealth(),
-        direction = character:getDirectionAngle()
-    }
-    if not shouldThrottleImmediate(lastImmediateZombieSync, zombieData.id) then
-        safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE, {zombieData})
-        if CustomSync.DEBUG then
-            print("[CustomSync] Sync on AI state change for zombie " .. zombieData.id .. " to state " .. tostring(newState))
-        end
-    elseif CustomSync.DEBUG then
-        print("[CustomSync] Throttled AI state sync for zombie " .. zombieData.id)
+    if sendImmediateZombieSync(character, false) and CustomSync.DEBUG then
+        print("[CustomSync] Sync on AI state change for zombie " .. character:getOnlineID() .. " to state " .. tostring(newState))
     end
 end
 
@@ -609,21 +787,9 @@ local function onWeaponSwingHitPoint(character, weapon, hitX, hitY, hitZ)
                 if zombie then
                     local zx, zy = zombie:getX(), zombie:getY()
                     if type(zx) == "number" and type(zy) == "number" and CustomSync.getDistanceSq(zx, zy, hitX, hitY) < 4 then -- Within 2 squares
-                        local zombieData = {
-                            id = zombie:getOnlineID(),
-                            x = zx,
-                            y = zy,
-                            z = zombie:getZ(),
-                            health = zombie:getHealth(),
-                            direction = zombie:getDirectionAngle()
-                        }
-                        if not shouldThrottleImmediate(lastImmediateZombieSync, zombieData.id) then
-                            safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE, {zombieData})
-                            if CustomSync.DEBUG then
-                                print("[CustomSync] Sync on weapon swing hit for zombie " .. zombieData.id)
-                            end
-                        elseif CustomSync.DEBUG then
-                            print("[CustomSync] Throttled weapon swing hit sync for zombie " .. zombieData.id)
+                        local sent = sendImmediateZombieSync(zombie, false)
+                        if sent and CustomSync.DEBUG then
+                            print("[CustomSync] Sync on weapon swing hit for zombie " .. zombie:getOnlineID())
                         end
                     end
                 end
@@ -664,13 +830,13 @@ local function onCharacterCollide(character1, character2)
         y = zombie:getY(),
         z = zombie:getZ(),
         health = zombie:getHealth(),
-        direction = zombie:getDirectionAngle()
+        direction = zombie:getDirectionAngle(),
+        crawling = zombie:isCrawling()
     }
-    if not shouldThrottleImmediate(lastImmediatePlayerSync, playerData.id) then
-        safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_PLAYERS_IMMEDIATE, {playerData})
-    end
-    if not shouldThrottleImmediate(lastImmediateZombieSync, zombieData.id) then
+    safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_PLAYERS_IMMEDIATE, {playerData})
+    if shouldSendImmediateZombieSync(zombieData.id, false) then
         safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE, {zombieData})
+        CustomSync.lastImmediateZombieSyncTick[zombieData.id] = tickCounter
     end
     if CustomSync.DEBUG then
         print("[CustomSync] Sync on character collision between player " .. playerData.id .. " and zombie " .. zombieData.id)
@@ -678,35 +844,6 @@ local function onCharacterCollide(character1, character2)
 end
 
 Events.OnCharacterCollide.Add(onCharacterCollide)
-
-local function onPlayerMove(player)
-    if not player then return end
-    -- Throttled sync for player movement
-    local playerId = player:getOnlineID()
-    local lastPos = CustomSync.lastPlayerPositions[playerId]
-    local currentPos = {x = player:getX(), y = player:getY()}
-    if not lastPos or CustomSync.getDistanceSq(lastPos.x, lastPos.y, currentPos.x, currentPos.y) > CustomSync.MIN_MOVE_DISTANCE^2 then
-        CustomSync.lastPlayerPositions[playerId] = currentPos
-        local playerData = {
-            id = playerId,
-            x = currentPos.x,
-            y = currentPos.y,
-            z = player:getZ(),
-            health = player:getBodyDamage():getOverallBodyHealth(),
-            animation = player:getAnimationDebug()
-        }
-        if not shouldThrottleImmediate(lastImmediatePlayerSync, playerId) then
-            safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_PLAYERS_IMMEDIATE, {playerData})
-            if CustomSync.DEBUG then
-                print("[CustomSync] Sync on player move for " .. playerId)
-            end
-        elseif CustomSync.DEBUG then
-            print("[CustomSync] Throttled move sync for player " .. playerId)
-        end
-    end
-end
-
-Events.OnPlayerMove.Add(onPlayerMove)
 
 local function onPlayerGetDamage(player, damageType, damageAmount)
     if not player then return end
@@ -721,13 +858,9 @@ local function onPlayerGetDamage(player, damageType, damageAmount)
         health = health,
         animation = player:getAnimationDebug()
     }
-    if not shouldThrottleImmediate(lastImmediatePlayerSync, playerData.id) then
-        safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_PLAYERS_IMMEDIATE, {playerData})
-        if CustomSync.DEBUG then
-            print("[CustomSync] Sync on player get damage for " .. playerData.id .. " damage: " .. tostring(damageAmount))
-        end
-    elseif CustomSync.DEBUG then
-        print("[CustomSync] Throttled damage sync for player " .. playerData.id)
+    safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_PLAYERS_IMMEDIATE, {playerData})
+    if CustomSync.DEBUG then
+        print("[CustomSync] Sync on player get damage for " .. playerData.id .. " damage: " .. tostring(damageAmount))
     end
 end
 
@@ -746,21 +879,9 @@ local function onWeaponSwing(character, weapon)
                     local zx, zy = zombie:getX(), zombie:getY()
                     local cx, cy = character:getX(), character:getY()
                     if type(zx) == "number" and type(zy) == "number" and type(cx) == "number" and type(cy) == "number" and CustomSync.getDistanceSq(zx, zy, cx, cy) < 16 then -- Within 4 squares
-                        local zombieData = {
-                            id = zombie:getOnlineID(),
-                            x = zx,
-                            y = zy,
-                            z = zombie:getZ(),
-                            health = zombie:getHealth(),
-                            direction = zombie:getDirectionAngle()
-                        }
-                        if not shouldThrottleImmediate(lastImmediateZombieSync, zombieData.id) then
-                            safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE, {zombieData})
-                            if CustomSync.DEBUG then
-                                print("[CustomSync] Sync on weapon swing for zombie " .. zombieData.id)
-                            end
-                        elseif CustomSync.DEBUG then
-                            print("[CustomSync] Throttled weapon swing sync for zombie " .. zombieData.id)
+                        local sent = sendImmediateZombieSync(zombie, false)
+                        if sent and CustomSync.DEBUG then
+                            print("[CustomSync] Sync on weapon swing for zombie " .. zombie:getOnlineID())
                         end
                     end
                 end
@@ -785,21 +906,9 @@ local function onPlayerAttackFinished(player, weapon, damage, square)
                 if zombie then
                     local zx, zy = zombie:getX(), zombie:getY()
                     if type(zx) == "number" and type(zy) == "number" and CustomSync.getDistanceSq(zx, zy, sx, sy) < 4 then -- Within 2 squares
-                        local zombieData = {
-                            id = zombie:getOnlineID(),
-                            x = zx,
-                            y = zy,
-                            z = zombie:getZ(),
-                            health = zombie:getHealth(),
-                            direction = zombie:getDirectionAngle()
-                        }
-                        if not shouldThrottleImmediate(lastImmediateZombieSync, zombieData.id) then
-                            safeSendServerCommand(CustomSync.MOD_ID, CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE, {zombieData})
-                            if CustomSync.DEBUG then
-                                print("[CustomSync] Sync on player attack finished for zombie " .. zombieData.id)
-                            end
-                        elseif CustomSync.DEBUG then
-                            print("[CustomSync] Throttled attack-finished sync for zombie " .. zombieData.id)
+                        local sent = sendImmediateZombieSync(zombie, false)
+                        if sent and CustomSync.DEBUG then
+                            print("[CustomSync] Sync on player attack finished for zombie " .. zombie:getOnlineID())
                         end
                     end
                 end

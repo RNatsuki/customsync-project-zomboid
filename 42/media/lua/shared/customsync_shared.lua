@@ -6,21 +6,19 @@ CustomSync.UPDATE_INTERVAL = 30 -- ticks between updates (reduced for better syn
 CustomSync.SYNC_DISTANCE = 100 -- squares to sync (increased for better coverage)
 CustomSync.SYNC_DISTANCE_PLAYERS = 200 -- squares to sync players for map visibility
 CustomSync.SYNC_DISTANCE_ZOMBIES = 100 -- squares to sync zombies for consistency
-CustomSync.SYNC_DISTANCE_VEHICLES = 140 -- squares to sync vehicles/trailers
 CustomSync.MIN_MOVE_DISTANCE = 1.0 -- Minimum distance to trigger sync (throttling)
-CustomSync.MAX_ZOMBIES = 100 -- Hard cap of zombies to broadcast to keep packets light
-CustomSync.ZOMBIE_STALE_TICKS = 600 -- Remove inactive zombie entries after this many ticks
-CustomSync.IMMEDIATE_COOLDOWN_TICKS = 5 -- Throttle repeated immediate syncs for same entity
-CustomSync.PLAYER_TARGET_STALE_TICKS = 180 -- Drop interpolation targets if no updates arrive
-CustomSync.PLAYER_SNAP_DISTANCE = 4.0 -- Snap instead of interpolate when too far apart
-CustomSync.VEHICLE_SNAP_DISTANCE = 8.0 -- Snap vehicle/trailer positions when far apart
-CustomSync.VEHICLE_INTERP_SPEED = 1.5 -- Base interpolation speed for vehicles
+CustomSync.ZOMBIE_IMMEDIATE_COOLDOWN = 5 -- ticks to throttle immediate zombie sync spam
+CustomSync.PLAYER_DELTA_EPSILON = 0.02 -- minimum movement delta before rebroadcasting a player
+CustomSync.VEHICLE_DELTA_EPSILON = 0.05 -- minimum movement delta before rebroadcasting a vehicle
+CustomSync.TRAILER_INTERPOLATION_SPEED = 0.75 -- client interpolation speed for trailer correction
+CustomSync.TRAILER_MIN_GAP = 1.25 -- minimum desired distance between towing vehicle and trailer
 CustomSync.DEBUG = false -- Set to false to disable debug logging
 
 -- Commands
 CustomSync.COMMAND_SYNC_PLAYERS = "syncPlayers"
 CustomSync.COMMAND_SYNC_ZOMBIES = "syncZombies"
 CustomSync.COMMAND_SYNC_VEHICLES = "syncVehicles"
+CustomSync.COMMAND_SYNC_TRAILERS = "syncTrailers"
 CustomSync.COMMAND_SYNC_INVENTORIES = "syncInventories"
 CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE = "syncZombiesImmediate"
 CustomSync.COMMAND_SYNC_PLAYERS_IMMEDIATE = "syncPlayersImmediate"
@@ -44,4 +42,10 @@ end
 
 CustomSync.lastZombiePositions = {}
 CustomSync.lastPlayerPositions = {}
+CustomSync.lastBroadcastPlayers = {}
+CustomSync.lastBroadcastVehicles = {}
+CustomSync.lastTrailerPositions = {}
+CustomSync.lastInventorySignatures = {}
+CustomSync.lastRemoteInventorySignatures = {}
+CustomSync.lastImmediateZombieSyncTick = {}
 CustomSync.activeZombies = {}

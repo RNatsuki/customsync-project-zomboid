@@ -7,9 +7,14 @@ This server-side mod synchronizes real-time positions, health, and states of pla
 
 Key Features:
 - Player Sync: Keeps everyone in the right place with health and animation updates.
-- Zombie Sync: Syncs up to 50 nearby zombies within range, including position, health, direction, and crawling state for accurate threat tracking and damage.
+- Zombie Sync: Syncs nearby zombies within range (up to configured `MaxZombies`), including position, health, direction, and crawling state for accurate threat tracking and damage.
 - Vehicle Sync: Ensures cars and trucks behave consistently, including position, speed, and engine health.
+- Trailer Sync (Towing): Adds dedicated trailer position correction while towing to reduce visual overlap/rubberband with the towing vehicle.
 - Inventory Sync: Automatically syncs player inventories on container changes and upon death.
+- Delta Sync Optimization: Sends only changed players, zombies, and vehicles to reduce network traffic.
+- Inventory Signature Optimization: Skips redundant inventory rebuilds when no changes are detected.
+- Immediate Zombie Cooldown: New sandbox option to limit sync burst spam during intense combat.
+- Trailer Interpolation Option: Tune trailer correction smoothness using `TrailerInterpolationSpeed`.
 - Configurable Options: Adjust sync frequency, distance, and debug logging via the in-game sandbox menu – no server restarts needed!
 - Optimized Performance: Filters entities by distance to reduce server load and network traffic, even with large player counts.
 - Dynamic Updates: Change settings on-the-fly as admin without downtime.

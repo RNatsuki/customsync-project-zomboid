@@ -1,10 +1,22 @@
 require "CustomSync"
 
-if CustomSync.DEBUG then print("[CustomSync] Client script loaded") end
+print("[CustomSync] Client script loaded")
 
 CustomSync.playerTargets = {}
-CustomSync.vehicleTargets = CustomSync.vehicleTargets or {}
-CustomSync.clientTick = CustomSync.clientTick or 0
+CustomSync.trailerTargets = {}
+
+function CustomSync.getInventorySignature(items)
+    if not items then return "" end
+    local parts = {}
+    for _, itemData in ipairs(items) do
+        local part = tostring(itemData.type) .. ":" .. tostring(itemData.count or 1) .. ":" .. tostring(itemData.condition or 100)
+        if itemData.container then
+            part = part .. "{" .. CustomSync.getInventorySignature(itemData.container) .. "}"
+        end
+        table.insert(parts, part)
+    end
+    return table.concat(parts, "|")
+end
 
 local function onServerCommand(module, command, args)
     if module ~= CustomSync.MOD_ID then return end
@@ -19,6 +31,8 @@ local function onServerCommand(module, command, args)
         CustomSync.applyZombieSync(args)
     elseif command == CustomSync.COMMAND_SYNC_VEHICLES then
         CustomSync.applyVehicleSync(args)
+    elseif command == CustomSync.COMMAND_SYNC_TRAILERS then
+        CustomSync.applyTrailerSync(args)
     elseif command == CustomSync.COMMAND_SYNC_INVENTORIES then
         CustomSync.applyInventorySync(args)
     elseif command == CustomSync.COMMAND_SYNC_ZOMBIES_IMMEDIATE then
@@ -26,6 +40,40 @@ local function onServerCommand(module, command, args)
     elseif command == CustomSync.COMMAND_SYNC_PLAYERS_IMMEDIATE then
         CustomSync.applyPlayerSyncImmediate(args)
     end
+end
+
+local function getVehicleById(vehicleId)
+    local cell = getCell()
+    if not cell then return nil end
+    local vehicleList = cell:getVehicles()
+    if not vehicleList then return nil end
+    for i = 0, vehicleList:size() - 1 do
+        local vehicle = vehicleList:get(i)
+        if vehicle and vehicle:getID() == vehicleId then
+            return vehicle
+        end
+    end
+    return nil
+end
+
+local function getVehicleDirectionAngleSafe(vehicle)
+    if not vehicle then return 0 end
+    if type(vehicle.getDirectionAngle) == "function" then
+        local ok, angle = pcall(function()
+            return vehicle:getDirectionAngle()
+        end)
+        if ok and type(angle) == "number" then
+            return angle
+        end
+    end
+    return 0
+end
+
+local function setVehicleDirectionAngleSafe(vehicle, angle)
+    if not vehicle or type(vehicle.setDirectionAngle) ~= "function" or angle == nil then return end
+    pcall(function()
+        vehicle:setDirectionAngle(angle)
+    end)
 end
 
 function CustomSync.applyPlayerSync(playerData)
@@ -43,11 +91,12 @@ function CustomSync.applyPlayerSync(playerData)
     for _, data in ipairs(playerData) do
         local player = getPlayerByOnlineID(data.id)
         if player and player ~= localPlayer then -- Don't sync self
-            -- Store target for interpolation and map visibility (always, for global map visibility)
-            data.receivedTick = CustomSync.clientTick or 0
-            CustomSync.playerTargets[data.id] = data
-            if CustomSync.DEBUG then
-                print("[CustomSync] Client: Storing interpolation target for player " .. data.id .. " at (" .. data.x .. "," .. data.y .. ") speed: " .. (data.speed or "nil") .. " animation: " .. (data.animation or "nil"))
+            -- Store target for interpolation (within sync distance to avoid teleportation)
+            if CustomSync.isWithinSyncDistance(px, py, data.x, data.y) then
+                CustomSync.playerTargets[data.id] = data
+                if CustomSync.DEBUG then
+                    print("[CustomSync] Client: Storing interpolation target for player " .. data.id .. " at (" .. data.x .. "," .. data.y .. ") speed: " .. (data.speed or "nil") .. " animation: " .. (data.animation or "nil"))
+                end
             end
         end
     end
@@ -69,18 +118,18 @@ function CustomSync.applyZombieSync(zombieData)
     local zombieList = cell:getZombieList()
     if not zombieList then return end
 
+    local zombieMap = {}
+    for i = 0, zombieList:size() - 1 do
+        local zomb = zombieList:get(i)
+        if zomb then
+            zombieMap[zomb:getOnlineID()] = zomb
+        end
+    end
+
     local zombiesToKill = {}  -- Collect zombies to set dead after iteration
 
     for _, data in ipairs(zombieData) do
-        local zombie = nil
-        for i = 0, zombieList:size() - 1 do
-            local zomb = zombieList:get(i)
-            if zomb and zomb:getOnlineID() == data.id then
-                zombie = zomb
-                break
-            end
-        end
-
+        local zombie = zombieMap[data.id]
         if zombie then
             local px, py = localPlayer:getX(), localPlayer:getY()
             if CustomSync.isWithinSyncDistanceZombies(px, py, data.x, data.y) then
@@ -116,27 +165,32 @@ function CustomSync.applyZombieSyncImmediate(zombieData)
     local zombieList = cell:getZombieList()
     if not zombieList then return end
 
+    local zombieMap = {}
+    for i = 0, zombieList:size() - 1 do
+        local zomb = zombieList:get(i)
+        if zomb then
+            zombieMap[zomb:getOnlineID()] = zomb
+        end
+    end
+
     local zombiesToKill = {}  -- Collect zombies to set dead after iteration
 
     for _, data in ipairs(zombieData) do
-        for i = 0, zombieList:size() - 1 do
-            local zombie = zombieList:get(i)
-            if zombie and zombie:getOnlineID() == data.id then
-                zombie:setX(data.x)
-                zombie:setY(data.y)
-                zombie:setZ(data.z)
-                zombie:setHealth(data.health)
-                zombie:setDirectionAngle(data.direction)
-                if data.crawling ~= nil then
-                    zombie:setCrawling(data.crawling)
-                end
-                if data.health <= 0 then
-                    table.insert(zombiesToKill, zombie)  -- Collect instead of setting immediately
-                end
-                if CustomSync.DEBUG then
-                    print("[CustomSync] Immediate sync applied to zombie " .. data.id)
-                end
-                break
+        local zombie = zombieMap[data.id]
+        if zombie then
+            zombie:setX(data.x)
+            zombie:setY(data.y)
+            zombie:setZ(data.z)
+            zombie:setHealth(data.health)
+            zombie:setDirectionAngle(data.direction)
+            if data.crawling ~= nil then
+                zombie:setCrawling(data.crawling)
+            end
+            if data.health <= 0 then
+                table.insert(zombiesToKill, zombie)  -- Collect instead of setting immediately
+            end
+            if CustomSync.DEBUG then
+                print("[CustomSync] Immediate sync applied to zombie " .. data.id)
             end
         end
     end
@@ -185,11 +239,48 @@ function CustomSync.applyVehicleSync(vehicleData)
         print("[CustomSync] Applying sync for " .. #vehicleData .. " vehicles")
     end
 
-    local currentTick = CustomSync.clientTick or 0
+    local cell = getCell()
+    if not cell then return end
+
+    local vehicleList = cell:getVehicles()
+    if not vehicleList then return end
+
+    local vehicleMap = {}
+    for i = 0, vehicleList:size() - 1 do
+        local veh = vehicleList:get(i)
+        if veh then
+            vehicleMap[veh:getID()] = veh
+        end
+    end
 
     for _, data in ipairs(vehicleData) do
-        data.receivedTick = currentTick
-        CustomSync.vehicleTargets[data.id] = data
+        local vehicle = vehicleMap[data.id]
+        if vehicle then
+            local px, py = localPlayer:getX(), localPlayer:getY()
+            if CustomSync.isWithinSyncDistance(px, py, data.x, data.y) then
+                vehicle:setX(data.x)
+                vehicle:setY(data.y)
+                vehicle:setZ(data.z)
+                -- Speed and health
+            end
+        end
+    end
+end
+
+function CustomSync.applyTrailerSync(trailerData)
+    if not trailerData or type(trailerData) ~= "table" then return end
+
+    local localPlayer = getPlayer()
+    if not localPlayer then return end
+
+    for _, data in ipairs(trailerData) do
+        if data and data.id then
+            CustomSync.trailerTargets[data.id] = data
+        end
+    end
+
+    if CustomSync.DEBUG then
+        print("[CustomSync] Applying trailer sync targets: " .. #trailerData)
     end
 end
 
@@ -206,12 +297,16 @@ function CustomSync.applyInventorySync(inventoryData)
     for _, data in ipairs(inventoryData) do
         local player = getPlayerByOnlineID(data.id)
         if player and player ~= localPlayer and data.items then
-            if CustomSync.DEBUG then
-                print("[CustomSync] Updating inventory for player " .. data.id .. " with " .. #data.items .. " items")
+            local signature = data.signature or CustomSync.getInventorySignature(data.items)
+            if CustomSync.lastRemoteInventorySignatures[data.id] ~= signature then
+                if CustomSync.DEBUG then
+                    print("[CustomSync] Updating inventory for player " .. data.id .. " with " .. #data.items .. " items")
+                end
+                local inventory = player:getInventory()
+                inventory:clear()
+                CustomSync.deserializeInventory(inventory, data.items, 0)
+                CustomSync.lastRemoteInventorySignatures[data.id] = signature
             end
-            local inventory = player:getInventory()
-            inventory:clear()
-            CustomSync.deserializeInventory(inventory, data.items, 0)
         end
     end
 end
@@ -259,7 +354,6 @@ local function onContainerUpdate(container)
 end
 
 function CustomSync.interpolatePlayers()
-    CustomSync.clientTick = (CustomSync.clientTick or 0) + 1
     if CustomSync.DEBUG then
         local count = 0
         for _ in pairs(CustomSync.playerTargets) do count = count + 1 end
@@ -275,78 +369,60 @@ function CustomSync.interpolatePlayers()
             local dy = data.y - cy
             local dz = data.z - cz
             local dist = math.sqrt(dx*dx + dy*dy + dz*dz)
-            local age = (CustomSync.clientTick or 0) - (data.receivedTick or 0)
-            local staleWindow = CustomSync.PLAYER_TARGET_STALE_TICKS or 180
-            if age > staleWindow then
-                table.insert(idsToRemove, id)
+            local shouldInterpolate = true
+            if data.animation then
+                local anim = tostring(data.animation):lower()
+                if string.find(anim, "sit") or string.find(anim, "rest") or string.find(anim, "idle") then
+                    shouldInterpolate = false
+                end
+            end
+            if dist > 0.01 and shouldInterpolate and (dist > 0.5 or (data.speed or 0) >= 0.05) then
+                local baseSpeed = SandboxVars.CustomSync.InterpolationSpeed or 1.0
+                local speed = data.speed and math.min(data.speed * 20, baseSpeed * 2) or baseSpeed -- adjust multiplier for smoothness
+                if CustomSync.DEBUG then
+                    print("[CustomSync] Client: Using interpolation speed " .. speed .. " for player " .. data.id .. " (base: " .. baseSpeed .. ", calculated speed: " .. (data.speed or "nil") .. ")")
+                end
+                local moveDist = speed
+                if moveDist > dist then moveDist = dist end
+                local nx = cx + (dx / dist) * moveDist
+                local ny = cy + (dy / dist) * moveDist
+                local nz = cz + (dz / dist) * moveDist
+                player:setX(nx)
+                player:setY(ny)
+                player:setZ(nz)
+                -- Interpolate direction
+                if data.direction then
+                    local currentAngle = player:getDirectionAngle()
+                    local targetAngle = data.direction
+                    local deltaAngle = targetAngle - currentAngle
+                    -- Normalize deltaAngle to [-180, 180]
+                    while deltaAngle > 180 do deltaAngle = deltaAngle - 360 end
+                    while deltaAngle < -180 do deltaAngle = deltaAngle + 360 end
+                    local angleDist = math.abs(deltaAngle)
+                    if angleDist > 0.01 then
+                        local angleMove = speed * 2 -- faster rotation
+                        if angleMove > angleDist then angleMove = angleDist end
+                        local newAngle = currentAngle + (deltaAngle / angleDist) * angleMove
+                        player:setDirectionAngle(newAngle)
+                    end
+                end
             else
-                local shouldInterpolate = true
-                if data.animation then
-                    local anim = tostring(data.animation):lower()
-                    if string.find(anim, "sit") or string.find(anim, "rest") or string.find(anim, "idle") then
-                        shouldInterpolate = false
+                player:setX(data.x)
+                player:setY(data.y)
+                player:setZ(data.z)
+                if data.direction then
+                    player:setDirectionAngle(data.direction)
+                end
+                if data.health then
+                    player:getBodyDamage():setOverallBodyHealth(data.health)
+                    if CustomSync.DEBUG then
+                        print("[CustomSync] Client: Updated health for player " .. data.id .. " to " .. data.health)
                     end
                 end
-                local snapDistance = CustomSync.PLAYER_SNAP_DISTANCE or 4.0
-                if dist >= snapDistance then
-                    player:setX(data.x)
-                    player:setY(data.y)
-                    player:setZ(data.z)
-                    if data.direction then
-                        player:setDirectionAngle(data.direction)
-                    end
-                    if data.health then
-                        player:getBodyDamage():setOverallBodyHealth(data.health)
-                    end
-                    table.insert(idsToRemove, id)
-                elseif dist > 0.01 and shouldInterpolate and (dist > 0.5 or (data.speed or 0) >= 0.05) and dist <= CustomSync.SYNC_DISTANCE then
-                    local baseSpeed = SandboxVars.CustomSync.InterpolationSpeed or 1.0
-                    local ageFactor = math.max(0.4, 1 - (age / staleWindow))
-                    local speed = data.speed and math.min(data.speed * 20, baseSpeed * 2) or baseSpeed
-                    speed = speed * ageFactor -- slow down if the data is old to reduce rubber-banding
-                    if CustomSync.DEBUG then
-                        print("[CustomSync] Client: Using interpolation speed " .. speed .. " for player " .. data.id .. " (base: " .. baseSpeed .. ", calculated speed: " .. (data.speed or "nil") .. ")")
-                    end
-                    local moveDist = speed
-                    if moveDist > dist then moveDist = dist end
-                    local nx = cx + (dx / dist) * moveDist
-                    local ny = cy + (dy / dist) * moveDist
-                    local nz = cz + (dz / dist) * moveDist
-                    player:setX(nx)
-                    player:setY(ny)
-                    player:setZ(nz)
-                    if data.direction then
-                        local currentAngle = player:getDirectionAngle()
-                        local targetAngle = data.direction
-                        local deltaAngle = targetAngle - currentAngle
-                        while deltaAngle > 180 do deltaAngle = deltaAngle - 360 end
-                        while deltaAngle < -180 do deltaAngle = deltaAngle + 360 end
-                        local angleDist = math.abs(deltaAngle)
-                        if angleDist > 0.01 then
-                            local angleMove = speed * 2
-                            if angleMove > angleDist then angleMove = angleDist end
-                            local newAngle = currentAngle + (deltaAngle / angleDist) * angleMove
-                            player:setDirectionAngle(newAngle)
-                        end
-                    end
-                else
-                    player:setX(data.x)
-                    player:setY(data.y)
-                    player:setZ(data.z)
-                    if data.direction then
-                        player:setDirectionAngle(data.direction)
-                    end
-                    if data.health then
-                        player:getBodyDamage():setOverallBodyHealth(data.health)
-                        if CustomSync.DEBUG then
-                            print("[CustomSync] Client: Updated health for player " .. data.id .. " to " .. data.health)
-                        end
-                    end
-                    if CustomSync.DEBUG then
-                        print("[CustomSync] Final sync player " .. data.id .. " set to (" .. data.x .. "," .. data.y .. ")")
-                    end
-                    table.insert(idsToRemove, id)  -- Marcar para remover
+                if CustomSync.DEBUG then
+                    print("[CustomSync] Final sync player " .. data.id .. " set to (" .. data.x .. "," .. data.y .. ")")
                 end
+                table.insert(idsToRemove, id)  -- Marcar para remover
             end
         else
             -- Player no longer exists, remove target
@@ -360,74 +436,67 @@ function CustomSync.interpolatePlayers()
     end
 end
 
-function CustomSync.interpolateVehicles()
-    local cell = getCell()
-    if not cell then return end
-    local vehicleList = cell:getVehicles()
-    if not vehicleList then return end
-
-    local vehicleById = {}
-    for i = 0, vehicleList:size() - 1 do
-        local veh = vehicleList:get(i)
-        if veh then
-            vehicleById[veh:getID()] = veh
-        end
-    end
-
+function CustomSync.interpolateTrailers()
     local idsToRemove = {}
-    local snapDistance = CustomSync.VEHICLE_SNAP_DISTANCE or 8.0
-    local interpSpeed = CustomSync.VEHICLE_INTERP_SPEED or 1.5
-    local staleWindow = CustomSync.PLAYER_TARGET_STALE_TICKS or 180
-    local tick = CustomSync.clientTick or 0
 
-    for id, data in pairs(CustomSync.vehicleTargets) do
-        local vehicle = vehicleById[id]
-        if vehicle then
-            local vx, vy, vz = vehicle:getX(), vehicle:getY(), vehicle:getZ()
-            local dx = data.x - vx
-            local dy = data.y - vy
-            local dz = data.z - vz
-            local dist = math.sqrt(dx*dx + dy*dy + dz*dz)
-            local age = tick - (data.receivedTick or 0)
+    for id, data in pairs(CustomSync.trailerTargets) do
+        local trailer = getVehicleById(id)
+        if trailer then
+            local cx, cy, cz = trailer:getX(), trailer:getY(), trailer:getZ()
+            local tx, ty, tz = data.x or cx, data.y or cy, data.z or cz
 
-            if age > staleWindow then
-                table.insert(idsToRemove, id)
-            elseif dist >= snapDistance then
-                vehicle:setX(data.x)
-                vehicle:setY(data.y)
-                vehicle:setZ(data.z)
-                if data.angle then
-                    pcall(function() vehicle:setAngleZ(data.angle) end)
+            local towingVehicle = nil
+            if data.parentId then
+                towingVehicle = getVehicleById(data.parentId)
+            end
+
+            if towingVehicle then
+                local px, py = towingVehicle:getX(), towingVehicle:getY()
+                local minGap = math.max(CustomSync.TRAILER_MIN_GAP or 1.25, (data.hitchDistance or 0) * 0.8)
+                local ptx = tx - px
+                local pty = ty - py
+                local parentDist = math.sqrt(ptx * ptx + pty * pty)
+
+                if parentDist < minGap then
+                    local dirX, dirY
+                    if parentDist > 0.001 then
+                        dirX = ptx / parentDist
+                        dirY = pty / parentDist
+                    else
+                        local angle = getVehicleDirectionAngleSafe(towingVehicle) + 180
+                        local rad = math.rad(angle)
+                        dirX = math.cos(rad)
+                        dirY = math.sin(rad)
+                    end
+                    tx = px + dirX * minGap
+                    ty = py + dirY * minGap
                 end
-                table.insert(idsToRemove, id)
-            elseif dist > 0.05 then
-                local moveDist = interpSpeed + math.abs(data.speed or 0) * 0.02
-                if moveDist > dist then moveDist = dist end
-                local nx = vx + (dx / dist) * moveDist
-                local ny = vy + (dy / dist) * moveDist
-                local nz = vz + (dz / dist) * moveDist
-                vehicle:setX(nx)
-                vehicle:setY(ny)
-                vehicle:setZ(nz)
-                if data.angle then
-                    pcall(function()
-                        local current = vehicle:getAngleZ()
-                        local delta = data.angle - current
-                        while delta > math.pi do delta = delta - math.pi * 2 end
-                        while delta < -math.pi do delta = delta + math.pi * 2 end
-                        local angleMove = moveDist * 0.05
-                        if angleMove > math.abs(delta) then angleMove = math.abs(delta) end
-                        local newAngle = current + (delta >= 0 and angleMove or -angleMove)
-                        vehicle:setAngleZ(newAngle)
-                    end)
+            end
+
+            local dx = tx - cx
+            local dy = ty - cy
+            local dz = tz - cz
+            local dist = math.sqrt(dx * dx + dy * dy + dz * dz)
+
+            if dist > 0.02 then
+                local baseSpeed = SandboxVars.CustomSync.TrailerInterpolationSpeed or CustomSync.TRAILER_INTERPOLATION_SPEED or 0.75
+                local speed = baseSpeed
+                if data.speed then
+                    speed = math.max(baseSpeed, math.min(math.abs(data.speed) / 30, baseSpeed * 2))
                 end
+                local moveDist = math.min(speed, dist)
+                local nx = cx + (dx / dist) * moveDist
+                local ny = cy + (dy / dist) * moveDist
+                local nz = cz + (dz / dist) * moveDist
+                trailer:setX(nx)
+                trailer:setY(ny)
+                trailer:setZ(nz)
+                setVehicleDirectionAngleSafe(trailer, data.direction)
             else
-                vehicle:setX(data.x)
-                vehicle:setY(data.y)
-                vehicle:setZ(data.z)
-                if data.angle then
-                    pcall(function() vehicle:setAngleZ(data.angle) end)
-                end
+                trailer:setX(tx)
+                trailer:setY(ty)
+                trailer:setZ(tz)
+                setVehicleDirectionAngleSafe(trailer, data.direction)
                 table.insert(idsToRemove, id)
             end
         else
@@ -436,11 +505,12 @@ function CustomSync.interpolateVehicles()
     end
 
     for _, id in ipairs(idsToRemove) do
-        CustomSync.vehicleTargets[id] = nil
+        CustomSync.trailerTargets[id] = nil
     end
 end
+
 Events.OnServerCommand.Add(onServerCommand)
 Events.OnContainerUpdate.Add(onContainerUpdate)
 
 Events.OnTick.Add(CustomSync.interpolatePlayers)
-Events.OnTick.Add(CustomSync.interpolateVehicles)
+Events.OnTick.Add(CustomSync.interpolateTrailers)
