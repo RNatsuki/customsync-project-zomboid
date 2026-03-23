@@ -136,19 +136,42 @@ local function cleanupStaleCaches()
             CustomSync.lastPlayerPositions[id] = nil
             CustomSync.lastBroadcastPlayers[id] = nil
             CustomSync.lastInventorySignatures[id] = nil
+            CustomSync.lastCollisionSyncTick[id] = nil
+        end
+    end
+
+    -- Fix 2: Purge zombie caches against live zombie list, not just activeZombies
+    local cell = getCell()
+    local liveZombieIds = {}
+    if cell then
+        local zombieList = cell:getZombieList()
+        if zombieList then
+            for i = 0, zombieList:size() - 1 do
+                local z = zombieList:get(i)
+                if z then
+                    liveZombieIds[z:getOnlineID()] = true
+                end
+            end
         end
     end
 
     for id, _ in pairs(CustomSync.lastZombieHealth or {}) do
-        if not CustomSync.activeZombies[id] then
+        if not liveZombieIds[id] then
             CustomSync.lastZombieHealth[id] = nil
             CustomSync.lastZombieCrawling[id] = nil
             CustomSync.lastZombiePositions[id] = nil
             CustomSync.lastImmediateZombieSyncTick[id] = nil
+            CustomSync.lastZombieUpdateTick[id] = nil
         end
     end
 
-    local cell = getCell()
+    -- Also clean activeZombies against live list
+    for id, _ in pairs(CustomSync.activeZombies) do
+        if not liveZombieIds[id] then
+            CustomSync.activeZombies[id] = nil
+        end
+    end
+
     if cell then
         local vehicleList = cell:getVehicles()
         local liveVehicles = {}
@@ -184,6 +207,8 @@ local function onInitGlobalModData()
     CustomSync.lastZombieHealth = {}
     CustomSync.lastZombieCrawling = {}
     CustomSync.lastImmediateZombieSyncTick = {}
+    CustomSync.lastZombieUpdateTick = {}
+    CustomSync.lastCollisionSyncTick = {}
 end
 
 local function onTick()
@@ -225,23 +250,34 @@ local function onTick()
         end
     end
 
-    if tickCounter % 600 == 0 then
+    -- Fix 2: Increase cleanup frequency from every 600 ticks to every 300 ticks
+    if tickCounter % 300 == 0 then
         cleanupStaleCaches()
     end
 
     if tickCounter % CustomSync.UPDATE_INTERVAL ~= 0 then return end
 
+    -- Fix 3: Build playerPositions once and share across all sync functions
+    local players = getOnlinePlayers()
+    local playerPositions = {}
+    for j = 0, players:size() - 1 do
+        local player = players:get(j)
+        if player then
+            table.insert(playerPositions, {x = player:getX(), y = player:getY()})
+        end
+    end
+
     -- Sync players
     CustomSync.syncPlayers()
 
     -- Sync zombies
-    CustomSync.syncZombies()
+    CustomSync.syncZombies(playerPositions)
 
     -- Sync vehicles
-    CustomSync.syncVehicles()
+    CustomSync.syncVehicles(playerPositions)
 
     -- Sync trailers (towed vehicles) with parent relationship data
-    CustomSync.syncTrailers()
+    CustomSync.syncTrailers(playerPositions)
 
     -- Inventories and appearance synced on update via OnContainerUpdate
 end
@@ -304,22 +340,25 @@ function CustomSync.syncPlayers()
     end
 end
 
-function CustomSync.syncZombies()
+function CustomSync.syncZombies(playerPositions)
     if CustomSync.DEBUG then
         print("[CustomSync] Syncing zombies...")
     end
     local cell = getCell()
     if not cell then return end
 
-    local players = getOnlinePlayers()
     local zombieList = cell:getZombieList()
     if not zombieList then return end
 
-    local playerPositions = {}
-    for j = 0, players:size() - 1 do
-        local player = players:get(j)
-        if player then
-            table.insert(playerPositions, {x = player:getX(), y = player:getY()})
+    -- Fix 3: Use shared playerPositions from onTick, fallback to building if called standalone
+    if not playerPositions then
+        local players = getOnlinePlayers()
+        playerPositions = {}
+        for j = 0, players:size() - 1 do
+            local player = players:get(j)
+            if player then
+                table.insert(playerPositions, {x = player:getX(), y = player:getY()})
+            end
         end
     end
 
@@ -359,27 +398,36 @@ function CustomSync.syncZombies()
         end
     end
 
-    -- Add new nearby zombies
-    for id, zombie in pairs(zombieMap) do
-        if zombie and zombie:getHealth() > 0 and not CustomSync.activeZombies[id] then
-            local zx, zy = zombie:getX(), zombie:getY()
-            local near = false
-            for _, pos in ipairs(playerPositions) do
-                if CustomSync.isWithinSyncDistanceZombies(pos.x, pos.y, zx, zy) then
-                    near = true
-                    break
+    -- Fix 6: Cap activeZombies growth — count current entries
+    local activeCount = 0
+    for _ in pairs(CustomSync.activeZombies) do activeCount = activeCount + 1 end
+    local maxActive = math.floor((CustomSync.MAX_ZOMBIES or 100) * (CustomSync.MAX_ACTIVE_ZOMBIES_FACTOR or 1.5))
+
+    -- Add new nearby zombies (skip if already at cap)
+    if activeCount < maxActive then
+        for id, zombie in pairs(zombieMap) do
+            if zombie and zombie:getHealth() > 0 and not CustomSync.activeZombies[id] then
+                local zx, zy = zombie:getX(), zombie:getY()
+                local near = false
+                for _, pos in ipairs(playerPositions) do
+                    if CustomSync.isWithinSyncDistanceZombies(pos.x, pos.y, zx, zy) then
+                        near = true
+                        break
+                    end
                 end
-            end
-            if near then
-                CustomSync.activeZombies[id] = {
-                    id = id,
-                    x = zx,
-                    y = zy,
-                    z = zombie:getZ(),
-                    health = zombie:getHealth(),
-                    direction = zombie:getDirectionAngle(),
-                    crawling = zombie:isCrawling()
-                }
+                if near then
+                    CustomSync.activeZombies[id] = {
+                        id = id,
+                        x = zx,
+                        y = zy,
+                        z = zombie:getZ(),
+                        health = zombie:getHealth(),
+                        direction = zombie:getDirectionAngle(),
+                        crawling = zombie:isCrawling()
+                    }
+                    activeCount = activeCount + 1
+                    if activeCount >= maxActive then break end
+                end
             end
         end
     end
@@ -427,17 +475,20 @@ function CustomSync.syncZombies()
     end
 end
 
-function CustomSync.syncVehicles()
+function CustomSync.syncVehicles(playerPositions)
     local vehicles = {}
     local cell = getCell()
     if not cell then return end
 
-    local players = getOnlinePlayers()
-    local playerPositions = {}
-    for j = 0, players:size() - 1 do
-        local player = players:get(j)
-        if player then
-            table.insert(playerPositions, {x = player:getX(), y = player:getY()})
+    -- Fix 3: Use shared playerPositions, fallback to building if called standalone
+    if not playerPositions then
+        local players = getOnlinePlayers()
+        playerPositions = {}
+        for j = 0, players:size() - 1 do
+            local player = players:get(j)
+            if player then
+                table.insert(playerPositions, {x = player:getX(), y = player:getY()})
+            end
         end
     end
 
@@ -481,17 +532,20 @@ function CustomSync.syncVehicles()
     end
 end
 
-function CustomSync.syncTrailers()
+function CustomSync.syncTrailers(playerPositions)
     local trailers = {}
     local cell = getCell()
     if not cell then return end
 
-    local players = getOnlinePlayers()
-    local playerPositions = {}
-    for j = 0, players:size() - 1 do
-        local player = players:get(j)
-        if player then
-            table.insert(playerPositions, {x = player:getX(), y = player:getY()})
+    -- Fix 3: Use shared playerPositions, fallback to building if called standalone
+    if not playerPositions then
+        local players = getOnlinePlayers()
+        playerPositions = {}
+        for j = 0, players:size() - 1 do
+            local player = players:get(j)
+            if player then
+                table.insert(playerPositions, {x = player:getX(), y = player:getY()})
+            end
         end
     end
 
@@ -709,6 +763,15 @@ Events.OnZombieDead.Add(onZombieDead)
 local function onZombieUpdate(zombie)
     if not zombie then return end
     local id = zombie:getOnlineID()
+
+    -- Fix 1: Throttle per-zombie — only process every ZOMBIE_UPDATE_THROTTLE ticks
+    local throttle = CustomSync.ZOMBIE_UPDATE_THROTTLE or 10
+    local lastTick = CustomSync.lastZombieUpdateTick[id] or 0
+    if (tickCounter - lastTick) < throttle then
+        return
+    end
+    CustomSync.lastZombieUpdateTick[id] = tickCounter
+
     local currentHealth = zombie:getHealth()
     local currentCrawling = zombie:isCrawling()
     local lastHealth = CustomSync.lastZombieHealth[id]
@@ -777,19 +840,24 @@ Events.OnAIStateChange.Add(onAIStateChange)
 
 local function onWeaponSwingHitPoint(character, weapon, hitX, hitY, hitZ)
     if not character or not weapon or type(hitX) ~= "number" or type(hitY) ~= "number" then return end
-    -- Check if hitting a zombie and sync nearby zombies
+    -- Fix 5: Check if hitting a zombie, cap to max 5 syncs per swing event
     local cell = getCell()
     if cell then
         local zombieList = cell:getZombieList()
         if zombieList then
+            local syncCount = 0
             for i = 0, zombieList:size() - 1 do
                 local zombie = zombieList:get(i)
                 if zombie then
                     local zx, zy = zombie:getX(), zombie:getY()
                     if type(zx) == "number" and type(zy) == "number" and CustomSync.getDistanceSq(zx, zy, hitX, hitY) < 4 then -- Within 2 squares
                         local sent = sendImmediateZombieSync(zombie, false)
-                        if sent and CustomSync.DEBUG then
-                            print("[CustomSync] Sync on weapon swing hit for zombie " .. zombie:getOnlineID())
+                        if sent then
+                            syncCount = syncCount + 1
+                            if CustomSync.DEBUG then
+                                print("[CustomSync] Sync on weapon swing hit for zombie " .. zombie:getOnlineID())
+                            end
+                            if syncCount >= 5 then break end
                         end
                     end
                 end
@@ -815,9 +883,19 @@ local function onCharacterCollide(character1, character2)
     else
         return -- Not player-zombie collision
     end
+
+    -- Fix 4: Per-player collision cooldown to prevent horde spam
+    local playerId = player:getOnlineID()
+    local cooldown = CustomSync.COLLISION_COOLDOWN or 30
+    local lastCollisionTick = CustomSync.lastCollisionSyncTick[playerId] or 0
+    if (tickCounter - lastCollisionTick) < cooldown then
+        return
+    end
+    CustomSync.lastCollisionSyncTick[playerId] = tickCounter
+
     -- Immediate sync for both to correct positions after collision
     local playerData = {
-        id = player:getOnlineID(),
+        id = playerId,
         x = player:getX(),
         y = player:getY(),
         z = player:getZ(),
@@ -868,20 +946,26 @@ Events.OnPlayerGetDamage.Add(onPlayerGetDamage)
 
 local function onWeaponSwing(character, weapon)
     if not character or not weapon then return end
-    -- Sync nearby zombies when swinging weapon
+    -- Fix 5: Sync nearby zombies when swinging weapon, cap to max 5
     local cell = getCell()
     if cell then
         local zombieList = cell:getZombieList()
         if zombieList then
+            local cx, cy = character:getX(), character:getY()
+            if type(cx) ~= "number" or type(cy) ~= "number" then return end
+            local syncCount = 0
             for i = 0, zombieList:size() - 1 do
                 local zombie = zombieList:get(i)
                 if zombie then
                     local zx, zy = zombie:getX(), zombie:getY()
-                    local cx, cy = character:getX(), character:getY()
-                    if type(zx) == "number" and type(zy) == "number" and type(cx) == "number" and type(cy) == "number" and CustomSync.getDistanceSq(zx, zy, cx, cy) < 16 then -- Within 4 squares
+                    if type(zx) == "number" and type(zy) == "number" and CustomSync.getDistanceSq(zx, zy, cx, cy) < 16 then -- Within 4 squares
                         local sent = sendImmediateZombieSync(zombie, false)
-                        if sent and CustomSync.DEBUG then
-                            print("[CustomSync] Sync on weapon swing for zombie " .. zombie:getOnlineID())
+                        if sent then
+                            syncCount = syncCount + 1
+                            if CustomSync.DEBUG then
+                                print("[CustomSync] Sync on weapon swing for zombie " .. zombie:getOnlineID())
+                            end
+                            if syncCount >= 5 then break end
                         end
                     end
                 end

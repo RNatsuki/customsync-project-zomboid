@@ -12,6 +12,9 @@ CustomSync.PLAYER_DELTA_EPSILON = 0.02 -- minimum movement delta before rebroadc
 CustomSync.VEHICLE_DELTA_EPSILON = 0.05 -- minimum movement delta before rebroadcasting a vehicle
 CustomSync.TRAILER_INTERPOLATION_SPEED = 0.75 -- client interpolation speed for trailer correction
 CustomSync.TRAILER_MIN_GAP = 1.25 -- minimum desired distance between towing vehicle and trailer
+CustomSync.ZOMBIE_UPDATE_THROTTLE = 10 -- ticks between per-zombie onZombieUpdate checks (reduces O(zombies*players) per tick)
+CustomSync.COLLISION_COOLDOWN = 30 -- ticks between collision sync events per player (prevents horde spam)
+CustomSync.MAX_ACTIVE_ZOMBIES_FACTOR = 1.5 -- cap activeZombies at MAX_ZOMBIES * this factor
 CustomSync.DEBUG = false -- Set to false to disable debug logging
 
 -- Commands
@@ -48,4 +51,6 @@ CustomSync.lastTrailerPositions = {}
 CustomSync.lastInventorySignatures = {}
 CustomSync.lastRemoteInventorySignatures = {}
 CustomSync.lastImmediateZombieSyncTick = {}
+CustomSync.lastZombieUpdateTick = {} -- per-zombie tick for onZombieUpdate throttle
+CustomSync.lastCollisionSyncTick = {} -- per-player tick for collision cooldown
 CustomSync.activeZombies = {}

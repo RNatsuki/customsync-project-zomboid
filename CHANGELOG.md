@@ -1,5 +1,15 @@
 ## Changelog
 
+### v1.5.0 - March 23, 2026
+- **Updated for Build 42.15.3**: Verified compatibility with the latest Project Zomboid version.
+- **Zombie Update Throttle**: `onZombieUpdate` now processes each zombie every 10 ticks instead of every tick, eliminating O(zombies×players) per-tick overhead — the primary cause of server stuttering after ~15 minutes.
+- **Improved Cache Cleanup**: `cleanupStaleCaches` now purges zombie caches against the live zombie list instead of just `activeZombies`, and runs every 300 ticks (was 600) to prevent memory/cache growth over long sessions.
+- **Shared Player Positions**: Player positions are now built once per sync tick and shared across `syncZombies`, `syncVehicles`, and `syncTrailers`, removing 3× redundant iteration.
+- **Collision Sync Cooldown**: Added per-player cooldown (30 ticks) to `onCharacterCollide` to prevent sync spam during horde encounters.
+- **Weapon Swing Sync Cap**: `onWeaponSwing` and `onWeaponSwingHitPoint` now cap at 5 zombie syncs per event, preventing stutter during melee combat in dense areas.
+- **Active Zombies Growth Cap**: `activeZombies` tracking is now capped at `MAX_ZOMBIES × 1.5` entries to prevent unbounded overhead growth.
+- **New Shared Constants**: Added `ZOMBIE_UPDATE_THROTTLE`, `COLLISION_COOLDOWN`, and `MAX_ACTIVE_ZOMBIES_FACTOR` for tuning.
+
 ### v1.4.0 - February 17, 2026
 - **Smart Delta Sync (Players/Vehicles/Zombies)**: Added snapshot-based change detection so the server only sends entities when state actually changes.
 - **Zombie Sync Cap Enforcement**: `MaxZombies` is now enforced with nearest-zombie prioritization when too many zombies are active.

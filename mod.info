@@ -2,5 +2,5 @@ id=CustomSync
 name=Custom Sync Optimizer
 description=Real-time synchronization for players, zombies, and vehicles in multiplayer. Reduces desync issues for smoother gameplay.
 poster=poster.png
-tags=Build 41
-versionMin=41.0
+tags=Build 42
+versionMin=42
